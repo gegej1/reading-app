@@ -13,3 +13,4 @@ export * from "./rulings";
 export * from "./reports";
 export * from "./search";
 export * from "./kb";
+export * from "./pages";

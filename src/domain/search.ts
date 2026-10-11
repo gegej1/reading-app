@@ -6,6 +6,20 @@ export interface Searchable {
   title: string;
   name: string;
   content: string;
+  /** Frontmatter: `类型` and `标签` count as keywords next to the title. */
+  frontmatter?: Record<string, unknown>;
+}
+
+/** The page type and tags, which describe a page as much as its title. */
+function keywords(doc: Searchable): string {
+  const data = doc.frontmatter ?? {};
+  return ["类型", "标签"]
+    .flatMap((key) => {
+      const value = data[key];
+      if (Array.isArray(value)) return value.map(String);
+      return typeof value === "string" || typeof value === "number" ? [String(value)] : [];
+    })
+    .join(" ");
 }
 
 export interface SearchHit<T extends Searchable = Searchable> {
@@ -79,7 +93,7 @@ export function searchDocs<T extends Searchable>(
 
   const hits: SearchHit<T>[] = [];
   for (const doc of docs) {
-    const title = `${doc.title} ${doc.name}`.toLowerCase();
+    const title = `${doc.title} ${doc.name} ${keywords(doc)}`.toLowerCase();
     const plain = stripMarkdown(doc.content);
     const text = plain.toLowerCase();
     if (!terms.every((term) => title.includes(term) || text.includes(term))) continue;

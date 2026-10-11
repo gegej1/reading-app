@@ -51,6 +51,18 @@ describe("searchDocs", () => {
     );
   });
 
+  it("treats the page type and tags from frontmatter like the title", () => {
+    const hits = searchDocs(model.docs, "判例");
+    const top = hits.slice(0, 3).map((h) => h.doc.path);
+    expect(top).toEqual([
+      "self/判例/P-001-速度与退路.md",
+      "self/判例/P-002-完整与及时.md",
+      "self/判例/P-003-规则与例外.md",
+    ]);
+    expect(hits[0]?.titleMatch).toBe(true);
+    expect(searchDocs(model.docs, "写作")[0]?.doc.name).toBe("写作即思考");
+  });
+
   it("produces a snippet for full-text matches", () => {
     const hit = searchDocs(model.docs, "完全不存在的词语");
     expect(hit).toEqual([]);

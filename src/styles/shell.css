@@ -1,0 +1,328 @@
+/* App frame: the book spine (navigation) and the desk (content). */
+
+.shell {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---------- Spine ---------- */
+
+.spine {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  padding: 18px 0 14px;
+  color: var(--spine-faint);
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.18), transparent 24%, transparent 78%, rgba(0, 0, 0, 0.22)),
+    var(--spine);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+/* The binding thread of a stitched book (线装). */
+.spine::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  right: 11px;
+  width: 1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--spine-faint) 70%, transparent) 0 9px,
+    transparent 9px 22px
+  );
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* The title slip (题签) pasted on the cover. */
+.spine__brand {
+  writing-mode: vertical-rl;
+  padding: 13px 7px;
+  margin-bottom: 28px;
+  font: 900 21px/1 var(--font-serif);
+  letter-spacing: 0.32em;
+  color: var(--label-ink);
+  text-decoration: none;
+  background: var(--label-paper);
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 0 3px var(--label-paper),
+    inset 0 0 0 4px color-mix(in srgb, var(--label-ink) 45%, transparent),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.spine__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spine__link {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 13px 0 15px;
+  color: var(--spine-faint);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.spine__link:hover {
+  color: var(--spine-ink);
+}
+
+.spine__label {
+  writing-mode: vertical-rl;
+  font: 500 16px/1 var(--font-serif);
+  letter-spacing: 0.42em;
+}
+
+/* Bookmark ribbon (书签带) on the active section. */
+.spine__link.is-active {
+  color: var(--spine-ink);
+}
+
+.spine__link.is-active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 4px;
+  left: 16px;
+  width: 5px;
+  background: var(--seal);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 84%, 0 100%);
+  animation: ribbon 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes ribbon {
+  from {
+    clip-path: polygon(0 0, 100% 0, 100% 0, 50% 0, 0 0);
+  }
+}
+
+.spine__dot {
+  position: absolute;
+  top: 9px;
+  right: 24px;
+  width: 6px;
+  height: 6px;
+  background: var(--seal);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--spine);
+}
+
+.spine__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.spine__reload {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--spine-faint);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--spine-faint) 35%, transparent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.spine__reload:hover:not(:disabled) {
+  color: var(--spine-ink);
+  border-color: var(--spine-faint);
+}
+
+.spine__reload.is-spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spine__source {
+  writing-mode: vertical-rl;
+  max-height: 150px;
+  overflow: hidden;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--spine-faint);
+}
+
+.spine__source.is-readonly {
+  color: color-mix(in srgb, var(--seal) 75%, var(--spine-ink));
+}
+
+/* ---------- Desk ---------- */
+
+.desk {
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+.screen {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 30px 46px 80px;
+}
+
+/* ---------- Toast ---------- */
+
+.toast {
+  position: fixed;
+  left: calc(50% + 44px);
+  bottom: 22px;
+  z-index: 40;
+  max-width: min(560px, calc(100vw - 140px));
+  padding: 10px 16px;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--paper-raised);
+  background: var(--ink);
+  border-radius: 5px;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px);
+  transition:
+    opacity 0.22s,
+    transform 0.22s;
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ---------- Boot (loading / error) ---------- */
+
+.boot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot__mark {
+  writing-mode: vertical-rl;
+  padding: 16px 9px;
+  font: 900 30px/1 var(--font-serif);
+  letter-spacing: 0.32em;
+  color: var(--label-ink);
+  background: var(--label-paper);
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 0 3px var(--label-paper),
+    inset 0 0 0 4px color-mix(in srgb, var(--label-ink) 45%, transparent),
+    var(--shadow-card);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.boot--error .boot__mark {
+  animation: none;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+.boot__title {
+  font: 700 22px/1.4 var(--font-serif);
+}
+
+.boot__text {
+  max-width: 520px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Narrow windows (web) ---------- */
+
+@media (max-width: 640px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .spine {
+    grid-row: 2;
+    flex-direction: row;
+    padding: 6px 10px;
+  }
+
+  .spine::after,
+  .spine__brand,
+  .spine__source {
+    display: none;
+  }
+
+  .spine__nav {
+    flex-direction: row;
+    justify-content: space-around;
+  }
+
+  .spine__label {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0.1em;
+  }
+
+  .spine__link.is-active::before {
+    top: auto;
+    bottom: 0;
+    left: 30%;
+    right: 30%;
+    width: auto;
+    height: 3px;
+    clip-path: none;
+  }
+
+  .spine__foot {
+    margin: 0;
+  }
+
+  .desk {
+    height: auto;
+  }
+
+  .screen {
+    padding: 22px 18px 60px;
+  }
+
+  .toast {
+    left: 50%;
+  }
+}

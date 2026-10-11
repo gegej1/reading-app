@@ -1,0 +1,261 @@
+/* Rendered KB Markdown. */
+
+.prose {
+  font-size: 15px;
+  line-height: 1.86;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0.65em 0;
+}
+
+.prose h1 {
+  margin: 1.4em 0 0.6em;
+  font: 700 25px/1.35 var(--font-serif);
+  letter-spacing: 0.05em;
+}
+
+.prose h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 1.8em 0 0.55em;
+  font: 700 19px/1.45 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.prose h2::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: var(--seal);
+}
+
+.prose h3 {
+  margin: 1.4em 0 0.4em;
+  font: 600 16px/1.5 var(--font-ui);
+}
+
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 1.2em 0 0.3em;
+  font: 600 14.5px/1.5 var(--font-ui);
+  color: var(--ink-soft);
+}
+
+.prose ul,
+.prose ol {
+  margin: 0.6em 0;
+  padding-left: 1.35em;
+}
+
+.prose li {
+  margin: 0.28em 0;
+  padding-left: 0.15em;
+}
+
+.prose ul > li::marker {
+  color: var(--seal);
+  font-size: 0.85em;
+}
+
+.prose ol > li::marker {
+  font-family: var(--font-num);
+  color: var(--ink-faint);
+}
+
+.prose li > p {
+  margin: 0.2em 0;
+}
+
+.prose strong {
+  font-weight: 650;
+}
+
+.prose em {
+  font-style: normal;
+  text-emphasis: dot var(--seal);
+  -webkit-text-emphasis: dot var(--seal);
+  text-emphasis-position: under right;
+  -webkit-text-emphasis-position: under right;
+}
+
+.prose blockquote {
+  margin: 1em 0;
+  padding: 0.35em 0 0.35em 1.1em;
+  font-family: var(--font-serif);
+  font-size: 16.5px;
+  line-height: 1.9;
+  color: var(--ink);
+  background: linear-gradient(90deg, var(--seal-wash), transparent 70%);
+  border-left: 2px solid var(--seal-line);
+}
+
+.prose blockquote p {
+  margin: 0.3em 0;
+}
+
+.prose code {
+  padding: 0.12em 0.38em;
+  font-size: 12.5px;
+  background: var(--paper-sunk);
+  border-radius: 3px;
+}
+
+.prose pre {
+  margin: 1em 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.65;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+}
+
+.prose pre code {
+  padding: 0;
+  background: none;
+}
+
+.prose hr {
+  height: 1px;
+  margin: 2.2em auto;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--rule-strong), transparent);
+}
+
+.prose img {
+  max-width: 100%;
+}
+
+/* Links. Wikilinks are in-app, external links open outside. */
+
+.prose a {
+  color: var(--azurite);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--azurite) 32%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.18s;
+}
+
+.prose a:hover {
+  text-decoration-color: var(--azurite);
+}
+
+.wikilink--broken {
+  color: var(--ink-faint);
+  text-decoration: underline dashed;
+  text-decoration-color: var(--seal-line);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.wikilink--broken::after {
+  content: "?";
+  margin-left: 1px;
+  font-size: 0.7em;
+  vertical-align: super;
+  color: var(--seal);
+}
+
+.link--local {
+  color: var(--ink-soft);
+  border-bottom: 1px dotted var(--rule-strong);
+}
+
+/* Tables. */
+
+.table-wrap {
+  margin: 1em 0;
+  overflow-x: auto;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.prose th,
+.prose td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+}
+
+.prose th {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  background: var(--paper-sunk);
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.prose tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--paper-sunk) 38%, transparent);
+}
+
+/* Task lists (read-only). */
+
+.prose .contains-task-list {
+  padding-left: 0.2em;
+  list-style: none;
+}
+
+/* GFM puts plain items and task items in one list: keep bullets on the plain ones. */
+.prose .contains-task-list > li:not(.task-list-item) {
+  margin-left: 1.2em;
+  list-style: disc;
+}
+
+/* Hanging indent: wrapped lines align with the text, not the box. */
+.prose .task-list-item {
+  padding-left: 24px;
+  text-indent: -24px;
+  list-style: none;
+}
+
+.task-box {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0 9px 0 0;
+  text-indent: 0;
+  vertical-align: -2px;
+  background: var(--paper-raised);
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 3px;
+}
+
+.task-box:checked {
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>")
+      center / 12px no-repeat,
+    var(--seal);
+  border-color: var(--seal);
+}

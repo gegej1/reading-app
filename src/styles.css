@@ -1,49 +1,6 @@
-/* Minimal placeholder styling. No UI library yet. */
-
-:root {
-  color-scheme: light dark;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "PingFang SC",
-    "Helvetica Neue",
-    sans-serif;
-  line-height: 1.6;
-  color: #2b2620;
-  background: #f3eee4;
-}
-
-body {
-  margin: 0;
-}
-
-.app {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 24px;
-  box-sizing: border-box;
-  text-align: center;
-}
-
-.app__name {
-  margin: 0;
-  font-size: 56px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-}
-
-.app__tagline {
-  margin: 12px 0 0;
-  font-size: 15px;
-  opacity: 0.7;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #ece6da;
-    background: #1d1a17;
-  }
-}
+/* Stylesheet entry. Plain CSS with custom properties; no UI library. */
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/shell.css";
+@import "./styles/prose.css";
+@import "./styles/screens.css";

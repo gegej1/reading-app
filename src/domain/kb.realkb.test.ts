@@ -8,7 +8,9 @@
 import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { listKbFiles, readKbFile, resolveDevKbRoot } from "../../dev/kbFs";
+import { toggleConfirmed } from "./dise";
 import { loadKb, type KbModel } from "./kb";
+import { toggleCheck } from "./reports";
 
 const root = resolveDevKbRoot();
 const enabled = !process.env.CI && existsSync(root);
@@ -60,6 +62,23 @@ describe.skipIf(!enabled)(`real KB (read-only): ${root}`, () => {
     for (const item of items) {
       expect(item.itemId, item.text).toMatch(/^I-\d+$/);
       expect(item.precedent, item.text).toMatch(/^P-\d{3}/);
+    }
+  });
+
+  it("edits only one line per toggle and round-trips on the real files (in memory only)", () => {
+    const dise = model.byPath.get("self/底色.md")?.content ?? "";
+    for (const entry of model.dise?.entries ?? []) {
+      const once = toggleConfirmed(dise, entry.id);
+      const changed = once.split("\n").filter((line, i) => line !== dise.split("\n")[i]);
+      expect(changed, entry.id).toHaveLength(1);
+      expect(toggleConfirmed(once, entry.id), entry.id).toBe(dise);
+    }
+    for (const report of model.reports) {
+      const content = model.byPath.get(report.path)?.content ?? "";
+      for (const item of report.auditItems) {
+        if (!item.itemId) continue;
+        expect(toggleCheck(toggleCheck(content, item.itemId), item.itemId), item.text).toBe(content);
+      }
     }
   });
 

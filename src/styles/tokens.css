@@ -1,0 +1,84 @@
+/* Design tokens: rice paper, warm ink, cinnabar seal (朱砂), azurite (石青), ochre (赭石).
+   System fonts only, so the app looks the same offline. */
+
+:root {
+  color-scheme: light dark;
+
+  --font-ui: "PingFang SC", -apple-system, BlinkMacSystemFont, "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+  --font-num: "Iowan Old Style", "Palatino", "Palatino Linotype", "Book Antiqua", Georgia,
+    "Songti SC", serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --paper: #f3ede1;
+  --paper-raised: #fbf8f1;
+  --paper-sunk: #e9e1d0;
+  --paper-edge: #ddd2bd;
+  --ink: #27221c;
+  --ink-soft: #564d42;
+  --ink-faint: #877c6c;
+  --ink-ghost: #b3a891;
+  --rule: rgba(39, 34, 28, 0.12);
+  --rule-strong: rgba(39, 34, 28, 0.24);
+
+  --seal: #b13a27;
+  --seal-deep: #8c2b1b;
+  --seal-ink: #fbf3e6;
+  --seal-wash: rgba(177, 58, 39, 0.08);
+  --seal-line: rgba(177, 58, 39, 0.3);
+  --ochre: #94651f;
+  --ochre-wash: rgba(148, 101, 31, 0.11);
+  --azurite: #2c5672;
+  --jade: #46694f;
+
+  --spine: #2a2521;
+  --spine-ink: #ece3d3;
+  --spine-faint: #a0937f;
+  --label-paper: #f6f0e3;
+  --label-ink: #2a2521;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(39, 34, 28, 0.05),
+    0 10px 26px -16px rgba(39, 34, 28, 0.28);
+  --shadow-float: 0 12px 32px -12px rgba(39, 34, 28, 0.4);
+  --radius: 6px;
+
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .22  0 0 0 0 .17  0 0 0 0 .1  0 0 0 .085 0'/></filter><rect width='100%' height='100%' filter='url(%23g)'/></svg>");
+  --wear: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' seed='7'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.4 2.35'/></filter><rect width='100%' height='100%' filter='url(%23w)'/></svg>");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b1915;
+    --paper-raised: #24211c;
+    --paper-sunk: #151310;
+    --paper-edge: #35302a;
+    --ink: #ebe3d3;
+    --ink-soft: #c0b5a3;
+    --ink-faint: #8f8574;
+    --ink-ghost: #615a4f;
+    --rule: rgba(235, 227, 211, 0.1);
+    --rule-strong: rgba(235, 227, 211, 0.2);
+
+    --seal: #d65f48;
+    --seal-deep: #b4432f;
+    --seal-ink: #fff4ea;
+    --seal-wash: rgba(214, 95, 72, 0.11);
+    --seal-line: rgba(214, 95, 72, 0.34);
+    --ochre: #d2a25b;
+    --ochre-wash: rgba(210, 162, 91, 0.12);
+    --azurite: #93bcd6;
+    --jade: #93b79c;
+
+    --spine: #11100e;
+    --spine-ink: #e6dcca;
+    --spine-faint: #85796a;
+    --label-paper: #d8cdb8;
+    --label-ink: #1f1b17;
+
+    --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 12px 30px -16px rgba(0, 0, 0, 0.7);
+    --shadow-float: 0 14px 34px -12px rgba(0, 0, 0, 0.8);
+
+    --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 .95  0 0 0 0 .86  0 0 0 .05 0'/></filter><rect width='100%' height='100%' filter='url(%23g)'/></svg>");
+  }
+}

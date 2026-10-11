@@ -1,0 +1,139 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { loadKb, type KbModel } from "../domain";
+import { canWrite, createStore, storeLabel } from "../store/selectStore";
+import type { KbStore } from "../store/types";
+import { KbContext, type KbContextValue } from "./KbContext";
+import { editKbFile } from "./editFile";
+import { makeLinkResolver } from "./links";
+
+type LoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; store: KbStore; model: KbModel };
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** KB folder of stores that know it (the desktop app); null otherwise. */
+async function rootPath(store: KbStore): Promise<string | null> {
+  const candidate = store as Partial<{ root(): Promise<{ path: string }> }>;
+  if (typeof candidate.root !== "function") return null;
+  try {
+    return (await candidate.root()).path;
+  } catch {
+    return null;
+  }
+}
+
+export interface KbProviderProps {
+  children: ReactNode;
+  /** Use this store instead of picking one for the runtime (tests, demos). */
+  store?: KbStore;
+}
+
+/** Loads the knowledge base once and provides it to the app. */
+export function KbProvider({ children, store: givenStore }: KbProviderProps) {
+  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [reloading, setReloading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sourceDetail, setSourceDetail] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const noticeTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+    (async () => {
+      try {
+        const store = givenStore ?? (await createStore());
+        const root = await rootPath(store);
+        if (!cancelled) setSourceDetail(root);
+        const model = await loadKb(store);
+        if (!cancelled) setState({ status: "ready", store, model });
+      } catch (error) {
+        if (!cancelled) setState({ status: "error", message: errorText(error) });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [givenStore, attempt]);
+
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
+
+  const notify = useCallback((text: string) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4200);
+  }, []);
+
+  const ready = state.status === "ready" ? state : null;
+  const store = ready?.store;
+
+  const reload = useCallback(async () => {
+    if (!store) return;
+    setReloading(true);
+    try {
+      const model = await loadKb(store);
+      setState({ status: "ready", store, model });
+    } catch (error) {
+      notify(`重新载入失败：${errorText(error)}`);
+    } finally {
+      setReloading(false);
+    }
+  }, [store, notify]);
+
+  const editFile = useCallback<KbContextValue["editFile"]>(
+    async (path, edit, message) => {
+      if (!store) throw new Error("知识库还没有载入");
+      const result = await editKbFile(store, path, edit, message);
+      await reload();
+      return result;
+    },
+    [store, reload],
+  );
+
+  const value = useMemo<KbContextValue | null>(() => {
+    if (!ready) return null;
+    return {
+      store: ready.store,
+      model: ready.model,
+      writable: canWrite(ready.store),
+      reloading,
+      reload,
+      editFile,
+      resolveLink: makeLinkResolver(ready.model),
+      notice,
+      notify,
+      sourceLabel: storeLabel(ready.store),
+      sourceDetail,
+    };
+  }, [ready, reloading, reload, editFile, notice, notify, sourceDetail]);
+
+  if (state.status === "loading") {
+    return (
+      <div className="boot" role="status" aria-live="polite">
+        <div className="boot__mark" aria-hidden="true">
+          底色
+        </div>
+        <p className="boot__text">正在翻开知识库…</p>
+      </div>
+    );
+  }
+
+  if (state.status === "error" || !value) {
+    return (
+      <div className="boot boot--error" role="alert">
+        <div className="boot__mark" aria-hidden="true">
+          底色
+        </div>
+        <h1 className="boot__title">打不开知识库</h1>
+        <p className="boot__text">{state.status === "error" ? state.message : "未知错误"}</p>
+        <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
+          再试一次
+        </button>
+      </div>
+    );
+  }
+
+  return <KbContext.Provider value={value}>{children}</KbContext.Provider>;
+}
