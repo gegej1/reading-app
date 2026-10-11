@@ -5,10 +5,14 @@
 //! which task to do and which files to process; how to do it is in the
 //! knowledge base's own `AGENTS.md`.
 
-use super::Task;
+use super::{EngineKind, Task};
 
 const INGEST: &str = include_str!("../../../runners/ingest.md");
 const LAND_RULINGS: &str = include_str!("../../../runners/land-rulings.md");
+/// Appended for Codex: AGENTS.md section 九 says "no commands", which is
+/// true for Claude Code's restricted mode, but Codex reads files only
+/// through commands. Without this note it reads nothing and does nothing.
+const CODEX_NOTE: &str = include_str!("../../../runners/codex.md");
 
 const DATE: &str = "{{date}}";
 const QUEUE_FILES: &str = "{{queue_files}}";
@@ -33,6 +37,15 @@ pub fn task_prompt(task: Task, date: &str, queue: &[String]) -> String {
         .replace(QUEUE_FILES, &files)
         .trim_end()
         .to_string()
+}
+
+/// The prompt for one run: [`task_prompt`], plus the note for Codex.
+pub fn engine_prompt(task: Task, engine: EngineKind, date: &str, queue: &[String]) -> String {
+    let prompt = task_prompt(task, date, queue);
+    match engine {
+        EngineKind::Claude => prompt,
+        EngineKind::Codex => format!("{prompt}\n\n{}", CODEX_NOTE.trim_end()),
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +98,21 @@ mod tests {
             // Both remind the engine of the two things the app checks hardest.
             assert!(text.contains("第九节"), "{task:?}");
             assert!(text.contains("逐字"), "{task:?}");
+        }
+    }
+
+    #[test]
+    fn codex_gets_a_note_about_reading_files_and_claude_does_not() {
+        let claude = engine_prompt(Task::Ingest, EngineKind::Claude, "2026-10-12", &queue());
+        assert_eq!(claude, task_prompt(Task::Ingest, "2026-10-12", &queue()));
+        for task in [Task::Ingest, Task::LandRulings] {
+            let codex = engine_prompt(task, EngineKind::Codex, "2026-10-12", &queue());
+            let (task_part, note) = codex.split_once("\n\n补充说明（只给 Codex）").unwrap();
+            assert_eq!(task_part, task_prompt(task, "2026-10-12", &queue()));
+            for expected in ["cat、sed", "apply_patch", "不运行 git", "不删除", "那一行 JSON"] {
+                assert!(note.contains(expected), "{expected}: {note}");
+            }
+            assert!(!codex.ends_with('\n'));
         }
     }
 }

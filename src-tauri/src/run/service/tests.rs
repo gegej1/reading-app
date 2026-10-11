@@ -639,6 +639,7 @@ fn claude_is_called_restricted_in_the_knowledge_base_with_a_private_login_file()
         world.kb.join("AGENTS.md").display()
     )));
     assert!(!rest.contains("--model"), "no model was asked for");
+    assert!(!rest.contains("只给 Codex"), "the Codex note is for Codex only");
 
     // The login file: private, in the private folder, only the login in it …
     assert_eq!(world.recorded("settings-mode").unwrap().trim(), "600");
@@ -1330,7 +1331,7 @@ printf '%s\n' '{{"type":"item.completed","item":{{"id":"i1","type":"file_change"
     let folder = world.dir.path().join("data/runs").join(&id);
     let args = world.recorded("args").unwrap();
     let expected = format!(
-        "exec\n--json\n--sandbox\nworkspace-write\n-C\n{}\n-o\n{}\n-c\napproval_policy=\"never\"\n--disable\nplugins\n--disable\napps\n--disable\nhooks\n--disable\nmemories\n-c\nmcp_servers.chrome-devtools.enabled=false\n-c\nmcp_servers.notion.enabled=false\n-\n",
+        "exec\n--json\n--sandbox\nworkspace-write\n-C\n{}\n-o\n{}\n-c\napproval_policy=\"never\"\n-c\nfeatures.plugins=false\n-c\nfeatures.apps=false\n-c\nfeatures.hooks=false\n-c\nfeatures.memories=false\n-c\nfeatures.multi_agent=false\n-c\nfeatures.browser_use=false\n-c\nfeatures.browser_use_external=false\n-c\nfeatures.computer_use=false\n-c\nfeatures.in_app_browser=false\n-c\nfeatures.image_generation=false\n-c\nmcp_servers.chrome-devtools.enabled=false\n-c\nmcp_servers.notion.enabled=false\n-\n",
         world.kb.display(),
         folder.join(record::FINAL_MESSAGE_FILE).display(),
     );
@@ -1338,6 +1339,7 @@ printf '%s\n' '{{"type":"item.completed","item":{{"id":"i1","type":"file_change"
     let prompt = world.recorded("stdin").unwrap();
     assert!(prompt.starts_with("你在我的个人决策底色知识库里工作。本次任务：入库。"));
     assert!(prompt.contains(&format!("- {CAPTURE_A}\n- {CAPTURE_B}\n")));
+    assert!(prompt.contains("补充说明（只给 Codex）"), "{prompt}");
     // Its last reply comes from the file it was told to write.
     let engine = record.engine_report.unwrap();
     assert_eq!(

@@ -12,7 +12,8 @@
 //! never logged.
 //!
 //! **Codex** runs in its `workspace-write` sandbox with approvals off. It
-//! keeps the user's model provider settings, but its plugins, apps, hooks and
+//! keeps the user's model provider settings, but its plugins, apps, hooks,
+//! memories, extra agents, browser and computer use, image generation and
 //! every configured MCP server are switched off for the run.
 
 use std::ffi::OsString;
@@ -27,8 +28,21 @@ use serde_json::{json, Map, Value};
 pub const CLAUDE_TOOLS: &str = "Read,Write,Edit,Glob,Grep";
 /// No MCP servers at all.
 const NO_MCP_SERVERS: &str = r#"{"mcpServers":{}}"#;
-/// Codex features that reach outside the knowledge base.
-const CODEX_DISABLED_FEATURES: &[&str] = &["plugins", "apps", "hooks", "memories"];
+/// Codex features that reach outside the knowledge base or start more
+/// agents. Switched off as `-c features.<name>=false`, which (unlike
+/// `--disable`) does not fail on a name a Codex version does not know.
+const CODEX_DISABLED_FEATURES: &[&str] = &[
+    "plugins",
+    "apps",
+    "hooks",
+    "memories",
+    "multi_agent",
+    "browser_use",
+    "browser_use_external",
+    "computer_use",
+    "in_app_browser",
+    "image_generation",
+];
 /// Auth files are named like this, so leftovers of a crash can be found.
 const AUTH_PREFIX: &str = "claude-auth-";
 
@@ -99,8 +113,8 @@ pub fn codex_args(
         r#"approval_policy="never""#.into(),
     ];
     for feature in CODEX_DISABLED_FEATURES {
-        args.push("--disable".into());
-        args.push(feature.into());
+        args.push("-c".into());
+        args.push(format!("features.{feature}=false").into());
     }
     for server in mcp_servers {
         args.push("-c".into());
@@ -356,14 +370,26 @@ mod tests {
                 "/runs/1/final-message.txt",
                 "-c",
                 r#"approval_policy="never""#,
-                "--disable",
-                "plugins",
-                "--disable",
-                "apps",
-                "--disable",
-                "hooks",
-                "--disable",
-                "memories",
+                "-c",
+                "features.plugins=false",
+                "-c",
+                "features.apps=false",
+                "-c",
+                "features.hooks=false",
+                "-c",
+                "features.memories=false",
+                "-c",
+                "features.multi_agent=false",
+                "-c",
+                "features.browser_use=false",
+                "-c",
+                "features.browser_use_external=false",
+                "-c",
+                "features.computer_use=false",
+                "-c",
+                "features.in_app_browser=false",
+                "-c",
+                "features.image_generation=false",
                 "-c",
                 "mcp_servers.notion.enabled=false",
                 "-c",

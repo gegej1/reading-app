@@ -692,7 +692,7 @@ impl RunService {
         );
 
         // The engine.
-        let prompt = prompt::task_prompt(task, &date, &queue);
+        let prompt = prompt::engine_prompt(task, engine, &date, &queue);
         let program = settings.program(engine);
         let mut command = env.command(&program);
         command.current_dir(&root);
