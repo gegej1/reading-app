@@ -1,4 +1,5 @@
-//! Listing Markdown files and writing them atomically.
+//! Listing Markdown files, replacing them atomically and creating new ones
+//! without ever overwriting an existing file.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -118,6 +119,58 @@ fn write_and_rename(temp: &Path, target: &Path, content: &str) -> io::Result<()>
     file.sync_all()?;
     drop(file);
     fs::rename(temp, target)
+}
+
+/// Creates `path` with `content`; fails with `AlreadyExists` when anything is
+/// already there, and never overwrites.
+///
+/// The content goes to a hidden temp file in the same directory first and is
+/// then published under the final name with a hard link, which the file
+/// system refuses when the name is taken (also for a name that differs only
+/// in letter case on a case-insensitive disk). Readers therefore see either
+/// no file or the complete one. On file systems without hard links the file
+/// is created directly with `O_EXCL` instead.
+pub fn create_new(path: &Path, content: &str) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let temp = dir.join(temp_name(&name.to_string_lossy()));
+
+    let result = write_temp(&temp, content).and_then(|()| match fs::hard_link(&temp, path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(error),
+        // No hard links here (exFAT, some network shares): still exclusive,
+        // just not atomic.
+        Err(_) => write_exclusive(path, content),
+    });
+    let _ = fs::remove_file(&temp);
+    result?;
+
+    if let Ok(dir_handle) = File::open(dir) {
+        let _ = dir_handle.sync_all();
+    }
+    Ok(())
+}
+
+fn write_temp(temp: &Path, content: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(temp)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()
+}
+
+fn write_exclusive(path: &Path, content: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let written = file
+        .write_all(content.as_bytes())
+        .and_then(|()| file.sync_all());
+    if written.is_err() {
+        // The file is ours (created just now) and incomplete.
+        let _ = fs::remove_file(path);
+    }
+    written
 }
 
 /// A unique hidden temp file name next to the target, e.g.
@@ -273,6 +326,78 @@ mod tests {
         write_atomic(&path, "b\n").unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn create_new_writes_the_file_and_leaves_no_temp_file() {
+        let kb = TempDir::new("create-new");
+        let dir = kb.mkdir("inbox");
+        let path = dir.join("2026-10-12T14-03-22-mac.md");
+        create_new(&path, "---\n来源: mac\n---\n\n一条随手记\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "---\n来源: mac\n---\n\n一条随手记\n"
+        );
+        assert_eq!(names_in(&dir), vec!["2026-10-12T14-03-22-mac.md"]);
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode & 0o600, 0o600, "the owner can read and write");
+    }
+
+    #[test]
+    fn create_new_never_overwrites() {
+        let kb = TempDir::new("create-new-exists");
+        let path = kb.write("inbox/note.md", "已有的内容\n");
+        let error = create_new(&path, "新的内容\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "已有的内容\n");
+        assert_eq!(names_in(&kb.path().join("inbox")), vec!["note.md"]);
+
+        // Directories and symlinks (even dangling ones) count as taken too.
+        let folder = kb.mkdir("inbox/folder.md");
+        assert_eq!(
+            create_new(&folder, "x").unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        let link = kb.path().join("inbox/link.md");
+        symlink(&kb.path().join("inbox/gone.md"), &link);
+        assert_eq!(
+            create_new(&link, "x").unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert!(!kb.path().join("inbox/gone.md").exists());
+    }
+
+    #[test]
+    fn create_new_treats_another_letter_case_as_taken_on_case_insensitive_disks() {
+        let kb = TempDir::new("create-new-case");
+        kb.write("inbox/note.md", "小写\n");
+        if !kb.path().join("inbox/NOTE.md").exists() {
+            return; // Case-sensitive file system: these are two different files.
+        }
+        let error = create_new(&kb.path().join("inbox/NOTE.md"), "大写\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            fs::read_to_string(kb.path().join("inbox/note.md")).unwrap(),
+            "小写\n"
+        );
+    }
+
+    #[test]
+    fn create_new_fails_cleanly_without_the_parent_folder() {
+        let kb = TempDir::new("create-new-noparent");
+        let error = create_new(&kb.path().join("missing/note.md"), "x").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(names_in(kb.path()).is_empty());
     }
 
     #[test]
