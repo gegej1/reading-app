@@ -1,0 +1,22 @@
+[package]
+name = "dise"
+version = "0.1.0"
+description = "Desktop shell for 底色 (Dise)"
+authors = ["gegej1"]
+edition = "2021"
+# tauri 2.12 requires Rust 1.90. Together with resolver "3" this also keeps
+# `cargo update` on dependency versions that still build with that toolchain.
+rust-version = "1.90"
+resolver = "3"
+publish = false
+
+[lib]
+# Named differently from the binary so the two build outputs never collide.
+name = "dise_lib"
+
+[build-dependencies]
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+# "tray-icon" is enabled for the menu-bar icon that a later milestone adds.
+tauri = { version = "2.12.3", features = ["tray-icon"] }

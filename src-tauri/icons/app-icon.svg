@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Placeholder app icon: paper with three strata, the darkest one at the base. -->
+  <!-- Regenerate the icon set with: pnpm tauri icon src-tauri/icons/app-icon.svg -->
+  <defs>
+    <clipPath id="shape">
+      <rect x="100" y="100" width="824" height="824" rx="184" ry="184" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#shape)">
+    <rect x="100" y="100" width="824" height="824" fill="#F3EEE4" />
+    <rect x="100" y="512" width="824" height="140" fill="#D9BC8C" />
+    <rect x="100" y="652" width="824" height="130" fill="#A8743F" />
+    <rect x="100" y="782" width="824" height="142" fill="#3A2A20" />
+  </g>
+</svg>
