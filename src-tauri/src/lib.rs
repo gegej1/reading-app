@@ -201,11 +201,16 @@ fn capture_from_command_line<R: Runtime>(app: &AppHandle<R>, text: &str, at: &Lo
         let built = capture::build_capture(text, capture::MAC, at)?;
         let root = commands::kb_folder(app)?;
         let env = &app.state::<ShellEnvState>().inner().get().env;
-        let _guard = app
+        // Also while a long-running job is going on: a capture is its own commit.
+        let guard = app
             .state::<KbLock>()
-            .acquire(commands::WRITE_OPERATION, commands::WRITE_WAIT)
+            .acquire_beside_job(commands::WRITE_OPERATION, commands::WRITE_WAIT)
             .map_err(|busy| busy.to_string())?;
-        capture::save_capture(&root, env, &built)
+        let saved = capture::save_capture(&root, env, &built)?;
+        if let Some(commit) = &saved.outcome.commit {
+            guard.note_commit(commit, &saved.path);
+        }
+        Ok::<_, String>(saved)
     })();
     let millis = started.elapsed().as_millis();
     match result {

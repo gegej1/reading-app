@@ -19,7 +19,10 @@
 //!
 //! Writes, creates and syncs take turns through the knowledge-base lock
 //! ([`KbLock`]): a write waits at most [`WRITE_WAIT`] for the operation in
-//! progress and then fails with a "busy" message instead of hanging.
+//! progress and then fails with a "busy" message instead of hanging. While
+//! a long-running job is going on (an AI run), writes are refused at once
+//! with that message; only quick captures (new files directly in `inbox/`)
+//! still go through, each as its own commit.
 //!
 //! Every call is logged with its name, repo-relative path, outcome and
 //! duration (reads only at debug level: a load reads every file); file
@@ -304,6 +307,17 @@ impl ScopeObjectMatch for CreateScope {
     }
 }
 
+/// The folder quick captures go to (see `crate::kb::capture`).
+const CAPTURE_FOLDER: &str = "inbox";
+
+/// True for a file directly in the capture folder: a quick capture (记一笔).
+pub fn is_capture_path(rel: &str) -> bool {
+    CreateScope {
+        folder: CAPTURE_FOLDER.to_string(),
+    }
+    .matches(rel)
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn kb_create<R: Runtime>(
@@ -335,13 +349,22 @@ pub async fn kb_create<R: Runtime>(
                 let shell_env = shell_env.inner().clone();
                 let path = path.clone();
                 blocking(move || {
-                    let _guard = lock
-                        .acquire(WRITE_OPERATION, WRITE_WAIT)
-                        .map_err(|busy| busy.to_string())?;
+                    // A quick capture keeps working while an AI run is going
+                    // on; any other new file has to wait for the run to end.
+                    let guard = if is_capture_path(&path) {
+                        lock.acquire_beside_job(WRITE_OPERATION, WRITE_WAIT)
+                    } else {
+                        lock.acquire(WRITE_OPERATION, WRITE_WAIT)
+                    }
+                    .map_err(|busy| busy.to_string())?;
                     let root = canonical_root(&kb_root)?;
                     let env = &shell_env.get().env;
-                    ops::create_file(&root, env, &path, &content, &message)
-                        .map_err(|error| error.to_string())
+                    let outcome = ops::create_file(&root, env, &path, &content, &message)
+                        .map_err(|error| error.to_string())?;
+                    if let Some(commit) = &outcome.commit {
+                        guard.note_commit(commit, &path);
+                    }
+                    Ok(outcome)
                 })
                 .await
             }
@@ -448,6 +471,14 @@ mod tests {
         assert!(!inbox.matches("inbox.md"));
         assert!(!inbox.matches("inboxes/a.md"));
         assert!(!inbox.matches("x/inbox/a.md"));
+    }
+
+    #[test]
+    fn captures_are_new_files_directly_in_the_inbox() {
+        assert!(is_capture_path("inbox/2026-10-12T14-03-22-mac.md"));
+        assert!(!is_capture_path("inbox/裁决/2026-10-12T14-03-22-mac.md"));
+        assert!(!is_capture_path("self/底色.md"));
+        assert!(!is_capture_path("index.md"));
     }
 
     #[test]
