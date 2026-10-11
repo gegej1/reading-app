@@ -1199,6 +1199,38 @@
   margin-top: 22px;
 }
 
+/* Other files share this page's name (the KB wants unique names). */
+.namesakes {
+  margin-top: 18px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: var(--ochre-wash);
+  border: 1px solid color-mix(in srgb, var(--ochre) 30%, transparent);
+  border-radius: 5px;
+}
+
+.namesakes__title {
+  margin-bottom: 4px;
+  font: 600 13px/1.4 var(--font-serif);
+  letter-spacing: 0.12em;
+  color: var(--ochre);
+}
+
+.namesakes__text code {
+  margin: 0 0.2em;
+  font-size: 12px;
+}
+
+.namesakes__list {
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+}
+
+.namesakes__list a {
+  font: 12px/1.6 var(--font-mono);
+}
+
 .backlinks {
   margin-top: 44px;
   padding-top: 16px;

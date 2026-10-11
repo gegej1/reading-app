@@ -1,4 +1,4 @@
-import { parseFrontmatter, type FrontmatterData } from "./frontmatter";
+import { parseFrontmatter, splitFrontmatter, type FrontmatterData } from "./frontmatter";
 import {
   fencedCodeMask,
   firstHeading,
@@ -179,18 +179,19 @@ export function sortReportsNewestFirst(reports: readonly Report[]): Report[] {
 }
 
 /**
- * Flips the checkbox of one 待你抽查 item (`- [ ]` <-> `- [x]`). Only that line
- * changes. Throws when the item is not in an audit section.
+ * Puts one 待你抽查 item into the requested state: `desired` true checks it
+ * (`- [x]`), false unchecks it (`- [ ]`). When the item is already in that
+ * state the input is returned unchanged, so a stale screen never flips an
+ * audit the user did not mean to change. Only that line changes. Throws when
+ * the item is not in an audit section.
  */
-export function toggleCheck(markdown: string, itemId: string): string {
+export function setChecked(markdown: string, itemId: string, desired: boolean): string {
   const lines = splitLines(markdown);
-  const mask = fencedCodeMask(lines);
   // Work on the whole file so frontmatter lines are never candidates: audit
   // sections only start at a `## 待你抽查` heading in the body.
-  const { block } = parseFrontmatter(markdown);
-  const offset = lineCount(block);
+  const offset = lineCount(splitFrontmatter(markdown).block);
   const bodyLines = lines.slice(offset);
-  const bodyMask = mask.slice(offset);
+  const bodyMask = fencedCodeMask(bodyLines);
 
   for (const [start, end] of auditRanges(bodyLines, bodyMask)) {
     for (let i = start; i < end; i += 1) {
@@ -201,8 +202,9 @@ export function toggleCheck(markdown: string, itemId: string): string {
       if (!match) continue;
       const id = ITEM_ID.exec((match[4] ?? "").trim());
       if (id?.[1] !== itemId) continue;
-      const mark = match[2] === " " ? "x" : " ";
-      lines[offset + i] = `${match[1]}${mark}${match[3]}${match[4]}${cr}`;
+      const checked = match[2] !== " ";
+      if (checked === desired) return markdown;
+      lines[offset + i] = `${match[1]}${desired ? "x" : " "}${match[3]}${match[4]}${cr}`;
       return lines.join("\n");
     }
   }

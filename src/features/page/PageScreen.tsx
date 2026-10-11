@@ -1,7 +1,14 @@
 import { Link, useParams } from "react-router";
 import { stripLeadingH1, stripMarkdown, type KbDoc, type KbModel, type LinkRef } from "../../domain";
 import { useKb } from "../../app/KbContext";
-import { docRoute, groupLabel, NAV_ITEMS, navSectionForGroup, safeDecode } from "../../app/links";
+import {
+  docRoute,
+  findPage,
+  groupLabel,
+  NAV_ITEMS,
+  navSectionForGroup,
+  sameNamePaths,
+} from "../../app/links";
 import { Chip, EmptyState } from "../../ui/components";
 import { Markdown } from "../../ui/Markdown";
 
@@ -58,16 +65,49 @@ function Backlinks({ doc }: { doc: KbDoc }) {
   );
 }
 
+/**
+ * Shown when other files share this page's name. Bare wikilinks to that name
+ * open the first path in code-point order; this lists the others.
+ */
+function SameNameNote({ doc, paths }: { doc: KbDoc; paths: string[] }) {
+  const { model } = useKb();
+  const opened = model.links.index.resolve(doc.name);
+  return (
+    <aside className="namesakes" aria-label="同名文件">
+      <p className="namesakes__title">同名文件</p>
+      <p className="namesakes__text">
+        知识库里还有 <span className="num">{paths.length}</span> 个文件也叫「{doc.name}」。只写名字的双链
+        <code>[[{doc.name}]]</code>
+        {opened === doc.path ? "打开的是这一页" : <>打开的是 <code>{opened}</code></>}
+        ；要指向别的文件，请在双链里写上路径。
+      </p>
+      <ul className="namesakes__list">
+        {paths.map((path) => {
+          const other = model.byPath.get(path);
+          return other ? (
+            <li key={path}>
+              <Link to={docRoute(other)} className="text-link">
+                {path}
+              </Link>
+            </li>
+          ) : null;
+        })}
+      </ul>
+    </aside>
+  );
+}
+
 export function PageScreen() {
   const { model, resolveLink } = useKb();
   const params = useParams();
-  const name = safeDecode(params.name);
-  const doc = model.byName.get(name);
+  // The splat holds the repo path, already decoded segment by segment.
+  const requested = params["*"] ?? "";
+  const doc = findPage(model, requested);
 
   if (!doc) {
     return (
       <div className="screen page">
-        <EmptyState title={`找不到「${name}」`}>
+        <EmptyState title={`找不到「${requested}」`}>
           这个页面可能改名或删除了。<Link to="/knowledge">回到书架</Link>
         </EmptyState>
       </div>
@@ -77,6 +117,7 @@ export function PageScreen() {
   const section = navSectionForGroup(doc.group);
   const sectionItem = NAV_ITEMS.find((item) => item.section === section);
   const chips = frontmatterEntries(doc.frontmatter);
+  const namesakes = sameNamePaths(model, doc);
 
   return (
     <article className="screen page">
@@ -104,6 +145,7 @@ export function PageScreen() {
           ))}
         </dl>
       ) : null}
+      {namesakes.length > 0 ? <SameNameNote doc={doc} paths={namesakes} /> : null}
       <Markdown resolve={resolveLink} className="page__body">
         {stripLeadingH1(doc.body)}
       </Markdown>

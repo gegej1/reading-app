@@ -147,7 +147,7 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
             {report ? (
               <>
                 <h2 className="report-card__title">
-                  <Link to={pageRoute(report.name)}>{report.title ?? report.name}</Link>
+                  <Link to={pageRoute(report.path)}>{report.title ?? report.name}</Link>
                 </h2>
                 {report.date ? <p className="report-card__date">{formatIsoDate(report.date)}</p> : null}
                 {report.resultParts.length > 0 ? (

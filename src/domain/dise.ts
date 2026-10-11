@@ -1,4 +1,4 @@
-import { parseFrontmatter, type FrontmatterData } from "./frontmatter";
+import { parseFrontmatter, splitFrontmatter, type FrontmatterData } from "./frontmatter";
 import {
   fencedCodeMask,
   lineCount,
@@ -194,23 +194,30 @@ export function parseDise(markdown: string): DiseDoc {
 }
 
 /**
- * Adds or removes the trailing ` ✅` on one entry heading. Only that line changes;
- * trailing whitespace and CR are kept, so toggling twice restores the input.
+ * Puts entry `id` into the requested state: `desired` true ends its heading
+ * with ` ✅`, false removes the check mark. Intent-based on purpose: when the
+ * entry is already in that state the input is returned unchanged, so a stale
+ * screen can never flip a confirmation the user did not mean to change.
+ *
+ * Only the heading line changes; trailing whitespace and CR are kept, so
+ * setting the old state again restores the input exactly. Headings inside
+ * fenced code and the frontmatter are never touched. Throws when the entry
+ * does not exist.
  */
-export function toggleConfirmed(markdown: string, id: string): string {
+export function setConfirmed(markdown: string, id: string, desired: boolean): string {
   const lines = splitLines(markdown);
-  const mask = fencedCodeMask(lines);
+  const offset = lineCount(splitFrontmatter(markdown).block);
+  const mask = fencedCodeMask(lines.slice(offset));
   const pattern = new RegExp(`^ {0,3}###[ \\t]+${escapeRegExp(id)}(?![0-9A-Za-z])`);
 
-  for (let i = 0; i < lines.length; i += 1) {
+  for (let i = offset; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
-    if (mask[i] || !pattern.test(line)) continue;
+    if (mask[i - offset] || !pattern.test(line)) continue;
     const trailing = /\s*$/.exec(line)?.[0] ?? "";
     const content = line.slice(0, line.length - trailing.length);
-    const next = TRAILING_CHECK.test(content)
-      ? content.replace(TRAILING_CHECK, "")
-      : `${content} ${CHECK}`;
-    lines[i] = next + trailing;
+    const confirmed = TRAILING_CHECK.test(content);
+    if (confirmed === desired) return markdown;
+    lines[i] = (desired ? `${content} ${CHECK}` : content.replace(TRAILING_CHECK, "")) + trailing;
     return lines.join("\n");
   }
   throw new Error(`底色里没有找到条目 ${id}`);

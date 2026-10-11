@@ -21,7 +21,7 @@ export function AppRoutes() {
         <Route path="/rulings" element={<RulingsScreen />} />
         <Route path="/knowledge" element={<KnowledgeScreen />} />
         <Route path="/raw" element={<RawScreen />} />
-        <Route path="/page/:name" element={<PageScreen />} />
+        <Route path="/page/*" element={<PageScreen />} />
         <Route
           path="*"
           element={

@@ -3,7 +3,7 @@ import { loadKb, type KbModel } from "../domain";
 import { canWrite, createStore, storeLabel } from "../store/selectStore";
 import type { KbStore } from "../store/types";
 import { KbContext, type KbContextValue } from "./KbContext";
-import { editKbFile } from "./editFile";
+import { createKbEditor } from "./editFile";
 import { makeLinkResolver } from "./links";
 
 type LoadState =
@@ -34,13 +34,18 @@ export interface KbProviderProps {
 export function KbProvider({ children, store: givenStore }: KbProviderProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloading, setReloading] = useState(false);
+  const [pendingEdits, setPendingEdits] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [sourceDetail, setSourceDetail] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const noticeTimer = useRef<number | undefined>(undefined);
+  // Every load gets a number; only the latest one may update the screen, so a
+  // slow reload can never overwrite the result of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const seq = ++loadSeq.current;
     setState({ status: "loading" });
     (async () => {
       try {
@@ -48,9 +53,11 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
         const root = await rootPath(store);
         if (!cancelled) setSourceDetail(root);
         const model = await loadKb(store);
-        if (!cancelled) setState({ status: "ready", store, model });
+        if (!cancelled && seq === loadSeq.current) setState({ status: "ready", store, model });
       } catch (error) {
-        if (!cancelled) setState({ status: "error", message: errorText(error) });
+        if (!cancelled && seq === loadSeq.current) {
+          setState({ status: "error", message: errorText(error) });
+        }
       }
     })();
     return () => {
@@ -71,25 +78,42 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
 
   const reload = useCallback(async () => {
     if (!store) return;
+    const seq = ++loadSeq.current;
     setReloading(true);
     try {
       const model = await loadKb(store);
-      setState({ status: "ready", store, model });
+      if (seq === loadSeq.current) setState({ status: "ready", store, model });
     } catch (error) {
-      notify(`重新载入失败：${errorText(error)}`);
+      if (seq === loadSeq.current) notify(`重新载入失败：${errorText(error)}`);
     } finally {
-      setReloading(false);
+      if (seq === loadSeq.current) setReloading(false);
     }
   }, [store, notify]);
 
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
+
+  // One editor (and so one queue) per store: edits never interleave, and the
+  // model is reloaded after each attempt so the screen shows what is on disk.
+  const editor = useMemo(
+    () =>
+      store
+        ? createKbEditor(store, {
+            afterEdit: () => reloadRef.current(),
+            onPendingChange: setPendingEdits,
+          })
+        : null,
+    [store],
+  );
+
   const editFile = useCallback<KbContextValue["editFile"]>(
     async (path, edit, message) => {
-      if (!store) throw new Error("知识库还没有载入");
-      const result = await editKbFile(store, path, edit, message);
-      await reload();
-      return result;
+      if (!editor) throw new Error("知识库还没有载入");
+      return editor(path, edit, message);
     },
-    [store, reload],
+    [editor],
   );
 
   const value = useMemo<KbContextValue | null>(() => {
@@ -99,6 +123,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
       model: ready.model,
       writable: canWrite(ready.store),
       reloading,
+      editing: pendingEdits > 0,
       reload,
       editFile,
       resolveLink: makeLinkResolver(ready.model),
@@ -107,7 +132,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
       sourceLabel: storeLabel(ready.store),
       sourceDetail,
     };
-  }, [ready, reloading, reload, editFile, notice, notify, sourceDetail]);
+  }, [ready, reloading, pendingEdits, reload, editFile, notice, notify, sourceDetail]);
 
   if (state.status === "loading") {
     return (

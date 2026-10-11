@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { fmString, parseDise, type DiseEntry } from "../../domain";
+import { fmString, type DiseEntry } from "../../domain";
 import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, safeDecode } from "../../app/links";
 import { Chip, cx, EmptyState, PageHeader, Seal, SealSlot } from "../../ui/components";
 import { Markdown } from "../../ui/Markdown";
 import { formatIsoDate } from "../../ui/format";
-import { diseToggle } from "./toggle";
+import { confirmEdit } from "./confirm";
 
 const READ_ONLY_HINT = "开发预览是只读的：请在桌面 App 里盖章";
 
@@ -14,13 +14,17 @@ interface EntryCardProps {
   entry: DiseEntry;
   index: number;
   writable: boolean;
+  /** Any edit is queued or being written: every write button waits. */
+  busy: boolean;
+  /** This entry's edit is the one being written. */
   pending: boolean;
   justStamped: boolean;
   error: string | null;
-  onToggle(entry: DiseEntry): void;
+  /** `desired` is the state the button offered: true for 盖章确认, false for 取消确认. */
+  onConfirm(entry: DiseEntry, desired: boolean): void;
 }
 
-function EntryCard({ entry, index, writable, pending, justStamped, error, onToggle }: EntryCardProps) {
+function EntryCard({ entry, index, writable, busy, pending, justStamped, error, onConfirm }: EntryCardProps) {
   const { resolveLink } = useKb();
   return (
     <article
@@ -72,8 +76,8 @@ function EntryCard({ entry, index, writable, pending, justStamped, error, onTogg
             <button
               type="button"
               className={cx("btn", "btn--small", entry.confirmed ? "btn--quiet" : "btn--seal-outline")}
-              onClick={() => onToggle(entry)}
-              disabled={!writable || pending}
+              onClick={() => onConfirm(entry, !entry.confirmed)}
+              disabled={!writable || busy}
               aria-describedby={`dise-${entry.id}-title`}
             >
               {pending ? "写入中…" : entry.confirmed ? "取消确认" : "盖章确认"}
@@ -89,7 +93,7 @@ function EntryCard({ entry, index, writable, pending, justStamped, error, onTogg
 }
 
 export function DiseScreen() {
-  const { model, writable, editFile, notify, resolveLink } = useKb();
+  const { model, writable, editing, editFile, notify, resolveLink } = useKb();
   const params = useParams();
   const focusId = safeDecode(params.entryId);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -121,15 +125,22 @@ export function DiseScreen() {
   const status = fmString(dise.frontmatter, "状态");
   const updated = fmString(dise.frontmatter, "更新");
 
-  const toggle = async (entry: DiseEntry) => {
+  // The button carries what the user saw: 盖章确认 means "make it confirmed".
+  // If the file already is (stale screen), nothing is written; the provider
+  // reloads after every attempt, so the card then shows the file as it is.
+  const setEntryConfirmed = async (entry: DiseEntry, desired: boolean) => {
     setPendingId(entry.id);
     setError(null);
     try {
-      const { edit, message } = diseToggle(entry.id);
+      const { edit, message } = confirmEdit(entry.id, desired);
       const result = await editFile(path, edit, message);
-      const stamped = parseDise(result.next).entries.find((e) => e.id === entry.id)?.confirmed ?? false;
-      setStampedId(stamped ? entry.id : null);
-      notify(stamped ? `已盖章并提交：${result.message}` : `已提交：${result.message}`);
+      if (!result.changed) {
+        setStampedId(null);
+        notify(`${entry.id} 本来就${desired ? "已确认" : "没有确认"}，没有改动`);
+        return;
+      }
+      setStampedId(desired ? entry.id : null);
+      notify(desired ? `已盖章并提交：${result.message}` : `已提交：${result.message}`);
     } catch (e) {
       setError({ id: entry.id, message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -202,10 +213,11 @@ export function DiseScreen() {
                   entry={entry}
                   index={index++}
                   writable={writable}
+                  busy={editing || pendingId !== null}
                   pending={pendingId === entry.id}
                   justStamped={stampedId === entry.id}
                   error={error?.id === entry.id ? error.message : null}
-                  onToggle={(e) => void toggle(e)}
+                  onConfirm={(e, desired) => void setEntryConfirmed(e, desired)}
                 />
               ))}
             </section>

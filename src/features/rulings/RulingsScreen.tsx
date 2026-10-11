@@ -1,7 +1,7 @@
 import { Link, useSearchParams } from "react-router";
 import { stripMarkdown, type AuditItem, type Report, type Ruling } from "../../domain";
 import { useKb } from "../../app/KbContext";
-import { pageRoute } from "../../app/links";
+import { docRoute, pageRoute } from "../../app/links";
 import { Chip, cx, EmptyState, Numbered, PageHeader } from "../../ui/components";
 import { formatIsoDate } from "../../ui/format";
 
@@ -24,7 +24,7 @@ function groupByPriority(rulings: readonly Ruling[]) {
 function RulingRow({ ruling, index }: { ruling: Ruling; index: number }) {
   return (
     <li className="rise" style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}>
-      <Link to={pageRoute(ruling.name)} className="ruling-row">
+      <Link to={pageRoute(ruling.path)} className="ruling-row">
         <span className={cx("ruling-row__priority", ruling.priority === "高" && "is-high")} aria-hidden="true">
           {ruling.priority ?? "·"}
         </span>
@@ -97,7 +97,7 @@ function AuditRow({ item }: { item: AuditItem }) {
           <p className="audit-row__basis">
             依据{" "}
             {precedent ? (
-              <Link to={pageRoute(precedent.name)} className="text-link">
+              <Link to={docRoute(precedent)} className="text-link">
                 {precedent.name}
               </Link>
             ) : (
@@ -124,7 +124,7 @@ function AuditList({ reports }: { reports: readonly Report[] }) {
           <section key={report.path} className="audit-group rise" aria-label={report.title ?? report.name}>
             <header className="audit-group__head">
               <h2 className="audit-group__title">
-                <Link to={pageRoute(report.name)}>{report.title ?? report.name}</Link>
+                <Link to={pageRoute(report.path)}>{report.title ?? report.name}</Link>
               </h2>
               <span className="audit-group__meta">
                 {report.date ? formatIsoDate(report.date) : null}

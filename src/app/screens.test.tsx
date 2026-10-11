@@ -10,7 +10,7 @@ import { createMemoryStore } from "../store/memoryStore";
 import { AppRoutes } from "../App";
 import { TodayScreen } from "../features/today/TodayScreen";
 import { KbContext, type KbContextValue } from "./KbContext";
-import { makeLinkResolver } from "./links";
+import { makeLinkResolver, pageRoute } from "./links";
 
 const model = buildKbModel(Object.entries(fixtureKb).map(([path, content]) => ({ path, content })));
 
@@ -20,8 +20,9 @@ function contextValue(overrides: Partial<KbContextValue> = {}): KbContextValue {
     model,
     writable: true,
     reloading: false,
+    editing: false,
     reload: async () => undefined,
-    editFile: async () => ({ next: "", message: "" }),
+    editFile: async () => ({ changed: false, next: "", message: null }),
     resolveLink: makeLinkResolver(model),
     notice: null,
     notify: () => undefined,
@@ -51,7 +52,7 @@ describe("shell", () => {
   });
 
   it("highlights the section of the page being read", () => {
-    const html = render(`/page/${encodeURIComponent("Q-001-周会要不要取消")}`);
+    const html = render(pageRoute("self/待裁决/Q-001-周会要不要取消.md"));
     expect(html).toMatch(/is-active"[^>]*><span class="spine__label">裁决/);
   });
 });
@@ -97,6 +98,12 @@ describe("底色", () => {
     expect(html.match(/<button type="button" class="btn btn--small[^"]*" disabled=""/g)).toHaveLength(6);
     expect(html).toContain("只读预览");
   });
+
+  it("disables every confirm button while an edit is being written", () => {
+    const html = render("/dise", { editing: true });
+    expect(html.match(/<button type="button" class="btn btn--small[^"]*" disabled=""/g)).toHaveLength(6);
+    expect(render("/dise").match(/disabled=""/g) ?? []).toHaveLength(0);
+  });
 });
 
 describe("裁决", () => {
@@ -133,7 +140,7 @@ describe("知识", () => {
 
 describe("page view", () => {
   it("shows frontmatter chips, rendered Markdown with wikilinks and backlinks", () => {
-    const html = render(`/page/${encodeURIComponent("写作即思考")}`);
+    const html = render(pageRoute("wiki/概念/写作即思考.md"));
     expect(html).toContain('<h1 class="page__title">写作即思考</h1>');
     expect(html).toMatch(/<dt>标签<\/dt><dd>做事、写作<\/dd>/);
     expect(html).toContain('href="#/dise"');
@@ -151,7 +158,35 @@ describe("page view", () => {
   });
 
   it("handles unknown pages and routes", () => {
-    expect(render(`/page/${encodeURIComponent("没有这一页")}`)).toContain("找不到「没有这一页」");
+    expect(render(pageRoute("wiki/没有这一页.md"))).toContain("找不到「wiki/没有这一页.md」");
     expect(render("/nope")).toContain("这一页不存在");
+  });
+
+  it("opens same-named files by path and lists the other ones", () => {
+    const twins = buildKbModel([
+      { path: "wiki/书/README.md", content: "# 书的说明\n\n关于书。\n" },
+      { path: "wiki/概念/README.md", content: "# 概念的说明\n\n关于概念，另见 [[wiki/书/README]]。\n" },
+    ]);
+    const html = render(pageRoute("wiki/概念/README.md"), {
+      model: twins,
+      resolveLink: makeLinkResolver(twins),
+    });
+    expect(html).toContain('<h1 class="page__title">概念的说明</h1>');
+    expect(html).not.toContain("书的说明</h1>");
+    expect(text(html)).toContain("同名文件");
+    expect(html).toContain(`href="${pageRoute("wiki/书/README.md")}"`);
+    // The path-qualified wikilink points at the other file, not the first README.
+    expect(html).toContain(`href="#${pageRoute("wiki/书/README.md")}"`);
+
+    const book = render(pageRoute("wiki/书/README.md"), {
+      model: twins,
+      resolveLink: makeLinkResolver(twins),
+    });
+    expect(book).toContain('<h1 class="page__title">书的说明</h1>');
+    expect(book).toContain(`href="${pageRoute("wiki/概念/README.md")}"`);
+  });
+
+  it("does not show the same-name hint for unique names", () => {
+    expect(text(render(pageRoute("wiki/概念/写作即思考.md")))).not.toContain("同名文件");
   });
 });

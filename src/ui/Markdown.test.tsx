@@ -71,4 +71,28 @@ describe("Markdown", () => {
     expect(html).not.toMatch(/<script|<img/);
     expect(html).toContain("&lt;script&gt;");
   });
+
+  it("gives headings stable, unique ids", () => {
+    const html = render("## 小节\n\n### Next Step!\n\n## 小节\n\n## 一、怎么做选择\n\n## 关于 [[底色]]");
+    expect(html).toContain('<h2 id="小节">小节</h2>');
+    expect(html).toContain('<h3 id="next-step">Next Step!</h3>');
+    expect(html).toContain('<h2 id="小节-1">小节</h2>');
+    expect(html).toContain('<h2 id="一怎么做选择">一、怎么做选择</h2>');
+    expect(html).toMatch(/<h2 id="关于-底色">关于 <a /);
+    // Rendering again yields the same ids.
+    expect(render("## 小节\n\n## 小节")).toBe(render("## 小节\n\n## 小节"));
+  });
+
+  it("keeps in-page links on the page instead of changing the route", () => {
+    const html = render("[见下文](#小节) 和 [[#小节|下一节]]\n\n## 小节");
+    const anchors = html.match(/<a [^>]*>[^<]*<\/a>/g) ?? [];
+    expect(anchors).toHaveLength(2);
+    expect(anchors[0]).toMatch(/class="anchor-link"/);
+    expect(anchors[0]).toContain(`href="#${encodeURIComponent("小节")}"`);
+    expect(anchors[0]).toContain(">见下文</a>");
+    expect(anchors[1]).toMatch(/class="wikilink anchor-link"/);
+    expect(anchors[1]).toContain(">下一节</a>");
+    // Wikilinks to other pages still navigate through the hash router.
+    expect(render("[[写作即思考]]")).not.toContain("anchor-link");
+  });
 });

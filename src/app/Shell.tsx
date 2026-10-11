@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useKb } from "./KbContext";
-import { NAV_ITEMS, navSectionForGroup, safeDecode, type NavSection } from "./links";
+import { findPage, NAV_ITEMS, navSectionForGroup, pathFromPageRoute, type NavSection } from "./links";
 import { cx } from "../ui/components";
 
 /** Which nav item is active for the current route. */
@@ -12,9 +12,9 @@ function useActiveSection(): NavSection {
   if (pathname.startsWith("/rulings")) return "rulings";
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/raw")) return "raw";
-  if (pathname.startsWith("/page/")) {
-    const name = safeDecode(pathname.slice("/page/".length));
-    const doc = model.byName.get(name);
+  const pagePath = pathFromPageRoute(pathname);
+  if (pagePath !== null) {
+    const doc = findPage(model, pagePath);
     return doc ? navSectionForGroup(doc.group) : "knowledge";
   }
   return "today";

@@ -30,14 +30,44 @@ export function navSectionForGroup(group: DocGroup): NavSection {
   }
 }
 
-/** Route of the generic page view for a file basename. */
-export function pageRoute(name: string): string {
-  return `/page/${encodeURIComponent(name)}`;
+const PAGE_PREFIX = "/page/";
+
+/**
+ * Route of the generic page view for one KB file, by its repo-relative path:
+ * `wiki/概念/小实验.md` -> `/page/wiki/%E6%A6%82%E5%BF%B5/...`. Each segment is
+ * encoded on its own, so `#`, `?` and `%` in file names survive the hash router.
+ */
+export function pageRoute(path: string): string {
+  return `${PAGE_PREFIX}${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /** Route that shows a document: 底色 has its own screen, everything else the page view. */
-export function docRoute(doc: Pick<KbDoc, "name" | "group">): string {
-  return doc.group === "dise" ? "/dise" : pageRoute(doc.name);
+export function docRoute(doc: Pick<KbDoc, "path" | "group">): string {
+  return doc.group === "dise" ? "/dise" : pageRoute(doc.path);
+}
+
+/** The repo path in a page route's (still encoded) pathname, or null for other routes. */
+export function pathFromPageRoute(pathname: string): string | null {
+  if (!pathname.startsWith(PAGE_PREFIX)) return null;
+  return pathname.slice(PAGE_PREFIX.length).split("/").map(safeDecode).join("/");
+}
+
+/**
+ * The document a page route asks for. Routes carry the repo path; a bare name
+ * (an old `/page/<name>` URL) is resolved like a wikilink.
+ */
+export function findPage(model: Pick<KbModel, "byPath" | "links">, requested: string): KbDoc | null {
+  if (requested === "") return null;
+  const exact = model.byPath.get(requested);
+  if (exact) return exact;
+  if (requested.includes("/")) return null;
+  const path = model.links.index.resolve(requested);
+  return path ? (model.byPath.get(path) ?? null) : null;
+}
+
+/** Other files with the same basename (the wikilink name) as `doc`, sorted. */
+export function sameNamePaths(model: Pick<KbModel, "links">, doc: Pick<KbDoc, "path" | "name">): string[] {
+  return (model.links.index.byName.get(doc.name) ?? []).filter((path) => path !== doc.path);
 }
 
 /** Route of one 底色 entry. */
@@ -60,13 +90,23 @@ export function safeDecode(value: string | undefined): string {
   }
 }
 
-/** Resolves wikilink targets to in-app links for the Markdown renderer. */
+/**
+ * Resolves wikilink targets to in-app links for the Markdown renderer.
+ * Path-qualified targets (`[[wiki/书/README]]`) open exactly that file; a bare
+ * name shared by several files opens the first path in code-point order (the
+ * link index's rule), and the tooltip says the name is ambiguous.
+ */
 export function makeLinkResolver(model: Pick<KbModel, "links" | "byPath">): LinkResolver {
   return (target) => {
     const path = model.links.index.resolve(target);
     const doc = path ? model.byPath.get(path) : undefined;
     if (!path || !doc) return null;
-    return { href: hashHref(docRoute(doc)), title: path };
+    const namesakes = model.links.index.byName.get(doc.name)?.length ?? 1;
+    const ambiguous = namesakes > 1 && !target.includes("/");
+    return {
+      href: hashHref(docRoute(doc)),
+      title: ambiguous ? `${path}（同名文件共 ${namesakes} 个）` : path,
+    };
   };
 }
 

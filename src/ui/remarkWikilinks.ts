@@ -25,11 +25,23 @@ function label(inner: string): string {
 }
 
 function linkNode(raw: string, inner: string, embed: boolean, options: RemarkWikilinksOptions) {
-  const { target } = parseWikilinkInner(inner);
-  const resolved = target ? options.resolve(target) : null;
+  const { target, heading } = parseWikilinkInner(inner);
   const text = label(inner) || raw;
   const className = ["wikilink"];
   if (embed) className.push("wikilink--embed");
+  // `[[#小节]]` points at a heading on the same page: an in-page anchor.
+  if (!target && heading) {
+    return {
+      type: "wikiLink",
+      value: text,
+      data: {
+        hName: "a",
+        hProperties: { href: `#${encodeURIComponent(heading)}`, className, title: heading },
+        hChildren: [{ type: "text", value: text }],
+      },
+    } as unknown as PhrasingContent;
+  }
+  const resolved = target ? options.resolve(target) : null;
   if (!resolved) className.push("wikilink--broken");
   // mdast-util-to-hast turns unknown nodes with hName/hProperties into elements.
   const node = {

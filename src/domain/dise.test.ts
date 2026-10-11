@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDise, pickDailyEntry, toggleConfirmed } from "./dise";
+import { parseDise, pickDailyEntry, setConfirmed } from "./dise";
 import { fixture } from "./__fixtures__";
 
 const md = fixture("self/底色.md");
@@ -99,54 +99,80 @@ describe("parseDise", () => {
   });
 });
 
-describe("toggleConfirmed", () => {
+describe("setConfirmed", () => {
+  const confirmedIn = (text: string, id: string) =>
+    parseDise(text).entries.find((e) => e.id === id)?.confirmed;
+
   it("adds a trailing check mark to an unconfirmed entry only", () => {
-    const next = toggleConfirmed(md, "D02");
+    const next = setConfirmed(md, "D02", true);
     expect(next).toContain("### D02 同一时间只做一件主要的事 ✅\n");
     const before = md.split("\n");
     const after = next.split("\n");
     expect(after.length).toBe(before.length);
     const changed = after.filter((line, i) => line !== before[i]);
     expect(changed).toEqual(["### D02 同一时间只做一件主要的事 ✅"]);
-    expect(parseDise(next).entries[1]?.confirmed).toBe(true);
+    expect(confirmedIn(next, "D02")).toBe(true);
   });
 
   it("removes the check mark from a confirmed entry", () => {
-    const next = toggleConfirmed(md, "D05");
+    const next = setConfirmed(md, "D05", false);
     expect(next).toContain("### D05 先信任，再校准\n");
-    expect(parseDise(next).entries[4]?.confirmed).toBe(false);
+    expect(confirmedIn(next, "D05")).toBe(false);
   });
 
-  it("returns the identical string after toggling twice", () => {
-    for (const id of ["D01", "D02", "D03", "D04", "D05", "D06"]) {
-      expect(toggleConfirmed(toggleConfirmed(md, id), id)).toBe(md);
+  it("returns the input unchanged when the entry is already in the desired state", () => {
+    // A stale screen asks to confirm an entry that is already confirmed (and
+    // the other way round): nothing may flip.
+    expect(setConfirmed(md, "D05", true)).toBe(md);
+    expect(setConfirmed(md, "D01", true)).toBe(md);
+    expect(setConfirmed(md, "D02", false)).toBe(md);
+    expect(setConfirmed(md, "D04", false)).toBe(md);
+  });
+
+  it("round-trips every entry to the identical string", () => {
+    for (const entry of parseDise(md).entries) {
+      const once = setConfirmed(md, entry.id, !entry.confirmed);
+      expect(once, entry.id).not.toBe(md);
+      expect(setConfirmed(once, entry.id, entry.confirmed), entry.id).toBe(md);
     }
   });
 
   it("preserves CRLF line endings and trailing spaces", () => {
     const crlf = "## 一、甲\r\n\r\n### D01 标题  \r\n> 引用\r\n";
-    const once = toggleConfirmed(crlf, "D01");
+    const once = setConfirmed(crlf, "D01", true);
     expect(once).toBe("## 一、甲\r\n\r\n### D01 标题 ✅  \r\n> 引用\r\n");
-    expect(toggleConfirmed(once, "D01")).toBe(crlf);
+    expect(setConfirmed(once, "D01", true)).toBe(once);
+    expect(setConfirmed(once, "D01", false)).toBe(crlf);
   });
 
   it("keeps the draft marker when confirming a draft", () => {
-    const next = toggleConfirmed(md, "D04");
+    const next = setConfirmed(md, "D04", true);
     expect(next).toContain("### D04 小步交付（草稿，待你确认） ✅\n");
     const d04 = parseDise(next).entries[3];
     expect(d04?.confirmed).toBe(true);
     expect(d04?.draft).toBe(true);
   });
 
-  it("does not match a longer id or a heading inside code", () => {
+  it("tolerates the emoji variation selector when un-confirming", () => {
+    const text = "### D01 标题 ✅\uFE0F\n";
+    expect(setConfirmed(text, "D01", true)).toBe(text);
+    expect(setConfirmed(text, "D01", false)).toBe("### D01 标题\n");
+  });
+
+  it("does not match a longer id, a heading inside code or the frontmatter", () => {
     const text = "### D010 别的\n```\n### D01 代码\n```\n### D01 真的\n";
-    expect(toggleConfirmed(text, "D01")).toBe(
+    expect(setConfirmed(text, "D01", true)).toBe(
       "### D010 别的\n```\n### D01 代码\n```\n### D01 真的 ✅\n",
+    );
+    const withFrontmatter = "---\n说明: |\n  ### D01 不是标题\n---\n### D01 真的\n";
+    expect(setConfirmed(withFrontmatter, "D01", true)).toBe(
+      "---\n说明: |\n  ### D01 不是标题\n---\n### D01 真的 ✅\n",
     );
   });
 
-  it("throws when the entry does not exist", () => {
-    expect(() => toggleConfirmed(md, "D42")).toThrow(/D42/);
+  it("throws when the entry does not exist, whatever the desired state", () => {
+    expect(() => setConfirmed(md, "D42", true)).toThrow(/D42/);
+    expect(() => setConfirmed(md, "D42", false)).toThrow(/D42/);
   });
 });
 

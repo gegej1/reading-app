@@ -11,10 +11,17 @@ export interface KbContextValue {
   writable: boolean;
   /** A reload is running (the current model stays visible meanwhile). */
   reloading: boolean;
+  /**
+   * An edit is queued or being written (or the reload after it is running).
+   * Write controls stay disabled meanwhile.
+   */
+  editing: boolean;
   reload(): Promise<void>;
   /**
-   * Re-reads `path` from the store, applies `edit`, writes the result with the
-   * commit message returned by `message`, then reloads the model.
+   * Re-reads `path` from the store, applies `edit`, and writes the result with
+   * the commit message returned by `message` (nothing is written when the edit
+   * changes nothing). All edits share one queue, so they never interleave.
+   * The model is reloaded after every attempt, success or failure.
    */
   editFile(
     path: string,

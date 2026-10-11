@@ -3,8 +3,8 @@ import {
   parseAuditLine,
   parseReport,
   reportDateFromPath,
+  setChecked,
   sortReportsNewestFirst,
-  toggleCheck,
 } from "./reports";
 import { fixture, fixtureKb } from "./__fixtures__";
 
@@ -140,40 +140,55 @@ describe("sortReportsNewestFirst", () => {
   });
 });
 
-describe("toggleCheck", () => {
+describe("setChecked", () => {
   const md = fixture(firstPath);
+  const checkedIn = (text: string, itemId: string) =>
+    parseReport(firstPath, text).auditItems.find((i) => i.itemId === itemId)?.checked;
 
   it("checks an unchecked item and changes only that line", () => {
-    const next = toggleCheck(md, "I-03");
+    const next = setChecked(md, "I-03", true);
     const before = md.split("\n");
     const after = next.split("\n");
     const changed = after.filter((line, i) => line !== before[i]);
     expect(changed).toHaveLength(1);
     expect(changed[0]?.startsWith("- [x] I-03 ")).toBe(true);
-    expect(parseReport(firstPath, next).auditItems[1]?.checked).toBe(true);
+    expect(checkedIn(next, "I-03")).toBe(true);
   });
 
   it("unchecks a checked item", () => {
-    const next = toggleCheck(md, "I-01");
+    const next = setChecked(md, "I-01", false);
     expect(next).toContain("- [ ] I-01 小实验比大计划更快找到答案");
+    expect(checkedIn(next, "I-01")).toBe(false);
   });
 
-  it("returns the identical string after toggling twice", () => {
-    expect(toggleCheck(toggleCheck(md, "I-01"), "I-01")).toBe(md);
-    expect(toggleCheck(toggleCheck(md, "I-03"), "I-03")).toBe(md);
+  it("returns the input unchanged when the item is already in the desired state", () => {
+    expect(setChecked(md, "I-01", true)).toBe(md);
+    expect(setChecked(md, "I-03", false)).toBe(md);
+    expect(setChecked("## 待你抽查\n- [X] I-02 乙\n", "I-02", true)).toBe(
+      "## 待你抽查\n- [X] I-02 乙\n",
+    );
+  });
+
+  it("round-trips every item to the identical string", () => {
+    for (const item of parseReport(firstPath, md).auditItems) {
+      if (!item.itemId) continue;
+      const once = setChecked(md, item.itemId, !item.checked);
+      expect(once, item.itemId).not.toBe(md);
+      expect(setChecked(once, item.itemId, item.checked), item.itemId).toBe(md);
+    }
   });
 
   it("ignores lines outside the audit section and requires an exact id", () => {
     const second = fixture(secondPath);
-    expect(() => toggleCheck(second, "I-99")).toThrow(/I-99/);
-    expect(() => toggleCheck(md, "I-0")).toThrow();
+    expect(() => setChecked(second, "I-99", true)).toThrow(/I-99/);
+    expect(() => setChecked(md, "I-0", true)).toThrow();
   });
 
   it("keeps CRLF line endings and ignores frontmatter", () => {
     const text = "---\r\n类型: 入库报告\r\n---\r\n## 待你抽查\r\n- [ ] I-02 乙\r\n";
-    const once = toggleCheck(text, "I-02");
+    const once = setChecked(text, "I-02", true);
     expect(once).toBe("---\r\n类型: 入库报告\r\n---\r\n## 待你抽查\r\n- [x] I-02 乙\r\n");
-    expect(toggleCheck(once, "I-02")).toBe(text);
+    expect(setChecked(once, "I-02", false)).toBe(text);
     expect(parseReport("reports/x.md", once).auditItems[0]).toMatchObject({
       itemId: "I-02",
       checked: true,
@@ -183,7 +198,7 @@ describe("toggleCheck", () => {
 
   it("does not mistake I-1 for I-12", () => {
     const text = "## 待你抽查\n\n- [ ] I-12 甲\n- [ ] I-1 乙\n";
-    expect(toggleCheck(text, "I-1")).toBe(
+    expect(setChecked(text, "I-1", true)).toBe(
       "## 待你抽查\n\n- [ ] I-12 甲\n- [x] I-1 乙\n",
     );
   });
