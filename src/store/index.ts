@@ -1,4 +1,5 @@
-// Store layer: application state and access to knowledge-base content.
-// Placeholder. Implementations are added in a later milestone.
+// Store layer: access to knowledge-base content (see types.ts).
 
-export {};
+export type { KbFileEntry, KbStore, KbStoreKind } from "./types";
+export { checkKbPath, assertKbPath, isInsideRoot } from "./kbPath";
+export { createMemoryStore } from "./memoryStore";
