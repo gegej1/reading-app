@@ -43,7 +43,6 @@ struct State {
     /// The long-running job, if one is running.
     job: Option<Job>,
     /// Numbers the jobs, so a stale [`KbJob`] can never end a newer job.
-    #[cfg_attr(not(test), allow(dead_code))]
     jobs_started: u64,
 }
 
@@ -52,7 +51,6 @@ struct Holder {
     since: Instant,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 struct Job {
     id: u64,
     operation: String,
@@ -75,7 +73,6 @@ pub struct KbLockGuard {
 }
 
 /// Marks a job as running until dropped.
-#[cfg_attr(not(test), allow(dead_code))]
 #[must_use = "the job ends as soon as this is dropped"]
 pub struct KbJob {
     lock: KbLock,
@@ -160,7 +157,6 @@ impl KbLock {
     /// holder to finish first. Refused at once while another job is running.
     /// The job runs until the returned [`KbJob`] is dropped; it does not hold
     /// the lock itself (see [`KbLock::acquire_beside_job`]).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn start_job(&self, operation: &str, wait: Duration) -> Result<KbJob, Busy> {
         let deadline = Instant::now() + wait;
         let mut state = self.state();
@@ -252,7 +248,6 @@ impl Drop for KbLockGuard {
 
 impl KbJob {
     /// Changes what the job says it is doing (shown in "busy" messages).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_operation(&self, operation: &str) {
         let mut state = self.lock.state();
         if let Some(job) = state.job.as_mut().filter(|job| job.id == self.id) {
@@ -261,7 +256,6 @@ impl KbJob {
     }
 
     /// The commits other operations made since the job started, oldest first.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn noted_commits(&self) -> Vec<NotedCommit> {
         let state = self.lock.state();
         state

@@ -104,3 +104,33 @@ pub fn commit_count(dir: &Path) -> usize {
         .parse()
         .unwrap_or(0)
 }
+
+/// An executable shell script that runs the script named by the environment
+/// variable `scenario_var` (with the same arguments), for tests that need a
+/// program which behaves differently per test.
+///
+/// macOS assesses every new executable file the first time it is run, one at
+/// a time, which takes long enough to make unrelated tests time out when
+/// dozens of tests each write and run a script of their own. So there is one
+/// launcher per name, kept under `target/` and left alone when it is already
+/// right; what differs per test is a plain file that the launcher sources.
+pub fn launcher(name: &str, scenario_var: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/dise-test-bin");
+    let path = dir.join(name);
+    let script = format!(
+        "#!/bin/sh\n# Test helper: runs the scenario a test points {scenario_var} at.\n. \"${scenario_var}\"\n"
+    );
+    if fs::read_to_string(&path).ok().as_deref() != Some(script.as_str()) {
+        fs::create_dir_all(&dir).expect("create the launcher folder");
+        // Written under another name first: tests run in parallel, and a
+        // half-written launcher must never be run.
+        let draft = dir.join(format!(".{name}-{}", std::process::id()));
+        fs::write(&draft, &script).expect("write the launcher");
+        fs::set_permissions(&draft, fs::Permissions::from_mode(0o755)).expect("chmod the launcher");
+        fs::rename(&draft, &path).expect("publish the launcher");
+    }
+    path
+}
+

@@ -119,6 +119,12 @@ pub(crate) struct FinishedBytes {
     pub stderr: Vec<u8>,
 }
 
+impl FinishedBytes {
+    pub fn success(&self) -> bool {
+        self.code == Some(0) && !self.timed_out
+    }
+}
+
 /// Runs `command` until it exits, or stops it when `timeout` has passed.
 ///
 /// The command gets its own process group, so the helpers git starts for a

@@ -783,6 +783,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "time",
+ "toml 0.8.2",
 ]
 
 [[package]]

@@ -35,8 +35,13 @@ tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-opener = "2.7.1"
 # The system-wide shortcut that shows the capture window.
 tauri-plugin-global-shortcut = "2.4.1"
-# setsid/kill for the login-shell capture (see src/shell_env.rs) and for git
-# commands that run under a timeout (see src/kb/git.rs).
+# Reads the names of the MCP servers in the user's Codex configuration, to
+# switch them off for an AI run (see src/run/engine.rs). Already part of the
+# build through tauri.
+toml = "0.8"
+# setsid/kill for the login-shell capture (see src/shell_env.rs), for git
+# commands that run under a timeout (see src/kb/git.rs) and for stopping an
+# engine (see src/run/process.rs).
 libc = "0.2"
 
 # Which app was in front before the capture window opened, to hand the focus

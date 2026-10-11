@@ -264,6 +264,32 @@ pub fn repo_status(root: &Path, env: &ChildEnv) -> Result<RepoStatus, String> {
     })
 }
 
+/// The name of an unfinished rebase, merge, cherry-pick, revert or bisect in
+/// the repository at `root`, if there is one.
+pub(crate) fn operation_in_progress(
+    root: &Path,
+    env: &ChildEnv,
+) -> Result<Option<&'static str>, String> {
+    let timeouts = Timeouts::default();
+    Repo {
+        root,
+        env,
+        timeouts: &timeouts,
+    }
+    .operation_in_progress()
+}
+
+/// Tracked files of the repository at `root` that are modified or staged.
+pub(crate) fn tracked_changes(root: &Path, env: &ChildEnv) -> Result<Vec<String>, String> {
+    let timeouts = Timeouts::default();
+    Repo {
+        root,
+        env,
+        timeouts: &timeouts,
+    }
+    .tracked_changes()
+}
+
 /// Deletes all but the `keep` newest backup refs of the repository at `root`.
 #[cfg(test)]
 pub fn prune_backups(root: &Path, env: &ChildEnv, keep: usize) -> Result<usize, String> {

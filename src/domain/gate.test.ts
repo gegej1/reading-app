@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import example from "./__fixtures__/gate-example.json";
 import {
   isAllowedPath,
   parseFinalLine,
@@ -552,5 +553,13 @@ describe("runGate: everything together", () => {
     expect(new Set(rules(report.violations))).toEqual(new Set(["paths", "rawAppendOnly", "queueVerbatim"]));
     expect(report.summary).toContain("没通过");
     expect(report.summary).toContain(String(report.violations.length));
+  });
+});
+
+describe("the example shared with the desktop app", () => {
+  // src-tauri/src/run/gate.rs reads the same file: the input must have
+  // exactly the fields the app sends, the report exactly what it reads.
+  it("gets exactly the report the app expects for the input the app sends", () => {
+    expect(runGate(example.input as GateInput)).toEqual(example.report);
   });
 });

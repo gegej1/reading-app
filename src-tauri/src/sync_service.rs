@@ -637,9 +637,13 @@ mod tests {
         let (startup, _) = until_finished(&notices);
         assert_eq!(startup.last.unwrap().reason, "startup");
 
-        // Three quick writes, one sync.
+        // Three quick writes, one sync. The commits come first: git can take
+        // longer than the 50 ms debounce on a busy machine, and the burst is
+        // about the calls, not about git.
         for name in ["c1.md", "c2.md", "c3.md"] {
             commit(&world.kb, name);
+        }
+        for _ in 0..3 {
             service.after_write();
             thread::sleep(Duration::from_millis(10));
         }

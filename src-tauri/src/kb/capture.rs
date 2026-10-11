@@ -47,8 +47,13 @@ impl LocalTime {
         Self::from(OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()))
     }
 
+    /// `2026-10-12`.
+    pub fn date(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+
     /// `2026-10-12T14-03-22`, the time part of a capture file name.
-    fn file_stamp(&self) -> String {
+    pub fn file_stamp(&self) -> String {
         format!(
             "{:04}-{:02}-{:02}T{:02}-{:02}-{:02}",
             self.year, self.month, self.day, self.hour, self.minute, self.second
@@ -244,6 +249,7 @@ mod tests {
     fn local_time_comes_from_the_clock_with_its_offset() {
         let east = LocalTime::from(datetime!(2026-10-12 14:03:22.987 +08:00));
         assert_eq!(east.file_stamp(), "2026-10-12T14-03-22");
+        assert_eq!(east.date(), "2026-10-12");
         assert_eq!(east.iso(), "2026-10-12T14:03:22+08:00");
         let west = LocalTime::from(datetime!(2026-01-02 03:04:05 -03:30));
         assert_eq!(west.offset_minutes, -210);

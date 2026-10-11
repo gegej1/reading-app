@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, RunEvent, Runtime, Window, WindowEvent};
 use tauri_plugin_global_shortcut::GlobalShortcut;
 
 use crate::capture_window::CAPTURE;
+use crate::run::service::RunService;
 use crate::sync_service::SyncService;
 
 /// Label of the main window (the first window in `tauri.conf.json`).
@@ -52,7 +53,8 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
 }
 
 /// App-level events: clicking the Dock icon brings the window back; on exit
-/// the sync thread and the global shortcut are released.
+/// a running engine is stopped, and the sync thread and the global shortcut
+/// are released.
 pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
     match event {
         #[cfg(target_os = "macos")]
@@ -67,6 +69,10 @@ pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
             }
         }
         RunEvent::Exit => {
+            // An engine must not keep working on the knowledge base alone.
+            if let Some(runs) = app.try_state::<RunService>() {
+                runs.shutdown();
+            }
             if let Some(service) = app.try_state::<SyncService>() {
                 service.stop();
             }

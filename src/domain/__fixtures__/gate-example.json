@@ -1,0 +1,106 @@
+{
+  "input": {
+    "runId": "2026-10-12T09-10-00-ingest",
+    "attempt": 1,
+    "task": "ingest",
+    "date": "2026-10-12",
+    "changes": [
+      {
+        "path": "index.md",
+        "status": "modified",
+        "before": "# 总目录\n\n- [[底色]]\n",
+        "after": "# 总目录\n\n- [[底色]]\n- [[2026-10-12-入库报告]]\n",
+        "opaque": null
+      },
+      {
+        "path": "raw/inbox/2026-10-12-收件箱.md",
+        "status": "added",
+        "before": null,
+        "after": "# 2026-10-12 收件箱\n\n## I-01（mac）\n周五下午做一次周回顾，只看三件事。\n",
+        "opaque": null
+      },
+      {
+        "path": "reports/2026-10-12-入库报告.md",
+        "status": "added",
+        "before": null,
+        "after": "# 入库报告（2026-10-12）\n\n- 结果：1 条\n- 本次没有拉取 Notion。\n",
+        "opaque": null
+      },
+      {
+        "path": "wiki/概念/链接.md",
+        "status": "added",
+        "before": null,
+        "after": null,
+        "opaque": "symlink"
+      }
+    ],
+    "unchanged": [
+      {
+        "path": "inbox/2026-10-12T09-00-00-mac.md",
+        "content": "---\n来源: mac\n时间: 2026-10-12T09:00:00+08:00\n---\n\n周五下午做一次周回顾，只看三件事。\n"
+      },
+      {
+        "path": "self/底色.md",
+        "content": "# 示例底色\n\n### D01 先留退路 ✅\n> 先确认能退回来，再决定跑多快。\n"
+      }
+    ],
+    "queue": [
+      {
+        "path": "inbox/2026-10-12T09-00-00-mac.md",
+        "content": "---\n来源: mac\n时间: 2026-10-12T09:00:00+08:00\n---\n\n周五下午做一次周回顾，只看三件事。\n"
+      }
+    ],
+    "finalMessage": "{\"任务\": \"入库\", \"条数\": 1, \"自动\": 1, \"判例裁决\": 0, \"待裁决\": 0, \"报告\": \"reports/2026-10-12-入库报告.md\", \"备注\": \"本次没有拉取 Notion\"}",
+    "engineFailure": null,
+    "foreignCommits": [
+      {
+        "hash": "0123456789abcdef0123456789abcdef01234567",
+        "subject": "示例：不是 App 做的提交"
+      }
+    ],
+    "untrackedChanged": [
+      "草稿.md"
+    ]
+  },
+  "report": {
+    "ok": false,
+    "violations": [
+      {
+        "rule": "engineCommits",
+        "path": null,
+        "message": "运行期间多了一个不是 App 做的提交 0123456789（AI 不能自己做 git 操作）"
+      },
+      {
+        "rule": "untracked",
+        "path": "草稿.md",
+        "message": "草稿.md 不在 git 里，运行中被改动或删除了；App 不会提交它，也不会替你恢复"
+      },
+      {
+        "rule": "fileKind",
+        "path": "wiki/概念/链接.md",
+        "message": "wiki/概念/链接.md 是符号链接，App 不会提交符号链接"
+      }
+    ],
+    "warnings": [],
+    "commitPaths": [
+      "index.md",
+      "raw/inbox/2026-10-12-收件箱.md",
+      "reports/2026-10-12-入库报告.md",
+      "wiki/概念/链接.md"
+    ],
+    "deleteQueuePaths": [
+      "inbox/2026-10-12T09-00-00-mac.md"
+    ],
+    "restoreQueuePaths": [],
+    "summary": "没通过检查：3 个问题",
+    "final": {
+      "任务": "入库",
+      "条数": 1,
+      "自动": 1,
+      "判例裁决": 0,
+      "待裁决": 0,
+      "报告": "reports/2026-10-12-入库报告.md",
+      "备注": "本次没有拉取 Notion"
+    }
+  }
+}

@@ -1,8 +1,9 @@
 //! Tauri desktop entry point for 底色 (Dise).
 //!
 //! The shell opens the main window and exposes the knowledge-base commands
-//! (`kb_root`, `kb_list`, `kb_read`, `kb_write`, `kb_create`, `kb_status`,
-//! `kb_sync`, see `commands`) and a few for the desktop shell (see `desktop`).
+//! (`kb_root`, `kb_list`, `kb_read`, `kb_read_head`, `kb_write`, `kb_create`,
+//! `kb_status`, `kb_sync`, see `commands`), the ones for AI runs (see
+//! `run_commands`) and a few for the desktop shell (see `desktop`).
 //! Around them:
 //!
 //! - `shell_env`: the user's login-shell environment, captured once at
@@ -12,9 +13,12 @@
 //! - `sync_service`: when the knowledge base is synced with its remote;
 //! - `capture_window`, `shortcut`, `tray`: quick capture (记一笔) from a
 //!   floating slip, a global shortcut and the menu-bar icon;
-//! - `cli`: `--capture "<text>"` and `--sync`, also handed to a running
-//!   instance by the single-instance plugin;
-//! - `events`: `kb-changed` and `sync-status` for the windows;
+//! - `run`, `run_commands`: AI runs (入库, 落裁决): an engine edits the
+//!   knowledge base, the gate checks the result, the app commits it;
+//! - `cli`: `--capture "<text>"`, `--sync`, `--ingest` and `--land-rulings`,
+//!   also handed to a running instance by the single-instance plugin;
+//! - `events`: `kb-changed`, `sync-status`, `run-status` and `run-step` for
+//!   the windows;
 //! - `process_group`: stopping a child process together with what it started;
 //! - `logging`: stdout plus a rotated file in `~/Library/Logs/com.gegej1.dise/`;
 //! - `window`: closing the window hides it, the Dock icon shows it, ⌘Q quits;
@@ -28,6 +32,8 @@ mod events;
 mod kb;
 mod logging;
 mod process_group;
+mod run;
+mod run_commands;
 pub mod shell_env;
 mod shortcut;
 mod sync_service;
@@ -44,6 +50,7 @@ use crate::kb::capture::{self, LocalTime};
 use crate::kb::lock::KbLock;
 use crate::kb::root;
 use crate::kb::sync::Timeouts;
+use crate::run::Task;
 use crate::shell_env::ShellEnvState;
 use crate::sync_service::{Notice, SyncService, SyncTiming};
 use crate::tray::Action;
@@ -97,6 +104,16 @@ fn setup<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
 
     let service = sync_service(app);
     app.manage(service.clone());
+    // After the sync service (a run syncs first), before the first sync: a
+    // run the app was closed in the middle of takes its job again, so its
+    // changes are neither pushed nor edited before someone decided on them.
+    match run_commands::service(app) {
+        Ok(runs) => {
+            runs.restore();
+            app.manage(runs);
+        }
+        Err(error) => log::error!("AI runs are not available: {error}"),
+    }
 
     let setting = commands::config_file(app)
         .and_then(|file| root::read_config_string(&file, root::SHORTCUT_KEY));
@@ -158,9 +175,10 @@ fn on_tray_action<R: Runtime>(app: &AppHandle<R>, action: Action) {
 fn on_second_launch<R: Runtime>(app: &AppHandle<R>, args: Vec<String>) {
     let request = cli::parse(args.into_iter().skip(1));
     log::info!(
-        "second launch handed over to this instance (capture={}, sync={})",
+        "second launch handed over to this instance (capture={}, sync={}, run={})",
         request.capture.is_some(),
-        request.sync
+        request.sync,
+        request.run.is_some()
     );
     perform(app, &request);
     if !request.has_action() {
@@ -173,26 +191,58 @@ fn perform<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
     for argument in &request.unknown {
         log::warn!("command line: ignored the argument {argument:?}");
     }
-    match &request.capture {
-        Some(Ok(text)) => {
-            let app = app.clone();
-            let text = text.clone();
-            let at = LocalTime::now();
-            let spawned = std::thread::Builder::new()
-                .name("capture".into())
-                .spawn(move || capture_from_command_line(&app, &text, &at));
-            if let Err(error) = spawned {
-                log::error!("command line capture: could not start ({error})");
-            }
+    let run = match &request.run {
+        Some(Ok(task)) => Some(*task),
+        Some(Err(error)) => {
+            log::warn!("command line run: not started: {error}");
+            None
         }
-        Some(Err(error)) => log::warn!("command line capture: {error}"),
-        None => {}
+        None => None,
+    };
+    let capture = match &request.capture {
+        Some(Ok(text)) => Some((text.clone(), LocalTime::now())),
+        Some(Err(error)) => {
+            log::warn!("command line capture: {error}");
+            None
+        }
+        None => None,
+    };
+    if capture.is_some() || run.is_some() {
+        let app = app.clone();
+        let engine = request.engine.clone();
+        let model = request.model.clone();
+        // One thread, so a capture given together with a run is in the queue
+        // before the run looks at it.
+        let spawned = std::thread::Builder::new()
+            .name("command-line".into())
+            .spawn(move || {
+                if let Some((text, at)) = &capture {
+                    capture_from_command_line(&app, text, at);
+                }
+                if let Some(task) = run {
+                    run_from_command_line(&app, task, engine.as_deref(), model.as_deref());
+                }
+            });
+        if let Err(error) = spawned {
+            log::error!("command line: could not start ({error})");
+        }
     }
     if request.sync {
         if let Some(service) = app.try_state::<SyncService>() {
             service.schedule(Duration::ZERO, "command line");
         }
     }
+}
+
+/// Starts the run `--ingest` or `--land-rulings` asked for. The run logs its
+/// steps and its outcome itself.
+fn run_from_command_line<R: Runtime>(
+    app: &AppHandle<R>,
+    task: Task,
+    engine: Option<&str>,
+    model: Option<&str>,
+) {
+    run_commands::start_from_command_line(app, task, engine, model);
 }
 
 /// Saves a capture from `--capture` exactly like the capture window does:
@@ -203,7 +253,7 @@ fn capture_from_command_line<R: Runtime>(app: &AppHandle<R>, text: &str, at: &Lo
         let built = capture::build_capture(text, capture::MAC, at)?;
         let root = commands::kb_folder(app)?;
         let env = &app.state::<ShellEnvState>().inner().get().env;
-        // Also while a long-running job is going on: a capture is its own commit.
+        // Also while an AI run is going on: a capture is its own commit.
         let guard = app
             .state::<KbLock>()
             .acquire_beside_job(commands::WRITE_OPERATION, commands::WRITE_WAIT)
@@ -250,6 +300,7 @@ fn register<R: Runtime>(
             commands::kb_root,
             commands::kb_list,
             commands::kb_read,
+            commands::kb_read_head,
             commands::kb_write,
             commands::kb_create,
             commands::kb_status,
@@ -258,6 +309,17 @@ fn register<R: Runtime>(
             desktop::capture_hide,
             desktop::tray_set_counts,
             desktop::desktop_info,
+            run_commands::run_start,
+            run_commands::run_cancel,
+            run_commands::run_status,
+            run_commands::run_steps,
+            run_commands::run_gate_input,
+            run_commands::run_gate_report,
+            run_commands::run_discard,
+            run_commands::run_keep,
+            run_commands::run_recheck,
+            run_commands::run_history,
+            run_commands::run_settings,
         ])
 }
 
@@ -277,8 +339,10 @@ mod ipc_tests {
     use tauri::{Manager, WebviewWindow, WebviewWindowBuilder};
 
     use crate::kb::lock::KbLock;
-    use crate::kb::sync::Timeouts;
-    use crate::kb::test_support::{commit_count, git, init_repo, TempDir};
+    use crate::kb::sync::{SyncReport, SyncState, Timeouts};
+    use crate::kb::test_support::{commit_count, git, init_repo, launcher, TempDir};
+    use crate::run::service::{Hooks, RunDirs, RunService, RunTiming};
+    use crate::run::settings::RunSettings;
     use crate::shell_env::{ChildEnv, Origin, ShellEnv, ShellEnvState};
     use crate::sync_service::{SyncService, SyncTiming};
 
@@ -305,7 +369,8 @@ mod ipc_tests {
         let kb = TempDir::new("ipc");
         init_repo(kb.path());
         kb.write("self/底色.md", "### D01 示例\n");
-        git(kb.path(), &["add", "--", "self/底色.md"]);
+        kb.write("AGENTS.md", "# 规则\n");
+        git(kb.path(), &["add", "--", "self/底色.md", "AGENTS.md"]);
         git(kb.path(), &["commit", "-q", "-m", "init"]);
 
         // The only test that touches the process environment.
@@ -327,12 +392,65 @@ mod ipc_tests {
             .expect("build mock app");
         let folder = kb.path().to_path_buf();
         app.manage(SyncService::new(
-            lock,
+            lock.clone(),
             shell_env,
             Timeouts::default(),
             SyncTiming::default(),
             move || Ok(folder.clone()),
             |_| {},
+        ));
+        // AI runs, with a fake engine and a home folder of their own (so the
+        // test never reads the real login settings).
+        let scratch = TempDir::new("ipc-run");
+        let scenario = scratch.write(
+            "fake-claude.sh",
+            concat!(
+                "mkdir -p raw/inbox reports\n",
+                "printf '# 收件箱\\n\\n一条\\n\\n第二条\\n' > raw/inbox/新-收件箱.md\n",
+                "printf '# 入库报告\\n' > reports/新-入库报告.md\n",
+                "printf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"{}\",\"total_cost_usd\":0.1,\"num_turns\":2}'\n",
+            ),
+        );
+        let engine = launcher("fake-claude", "DISE_FAKE_CLAUDE");
+        let run_env = ShellEnvState::ready(ShellEnv {
+            env: ChildEnv::from_vars([
+                ("PATH".to_string(), std::env::var("PATH").unwrap_or_default()),
+                (
+                    "HOME".to_string(),
+                    scratch.path().join("home").to_string_lossy().into_owned(),
+                ),
+                (
+                    "DISE_FAKE_CLAUDE".to_string(),
+                    scenario.to_string_lossy().into_owned(),
+                ),
+            ]),
+            origin: Origin::LoginShell,
+            took: Duration::ZERO,
+        });
+        let run_root = kb.path().to_path_buf();
+        let engine_path = engine.to_string_lossy().into_owned();
+        app.manage(RunService::new(
+            lock,
+            run_env,
+            RunDirs {
+                runs: scratch.path().join("runs"),
+                temp: scratch.path().join("tmp"),
+            },
+            RunTiming::default(),
+            Hooks {
+                root: Box::new(move || Ok(run_root.clone())),
+                settings: Box::new(move || {
+                    (
+                        RunSettings {
+                            claude_path: Some(engine_path.clone()),
+                            ..RunSettings::default()
+                        },
+                        Vec::new(),
+                    )
+                }),
+                sync: Box::new(|| SyncReport::stopped(SyncState::NoUpstream, None)),
+                notify: Box::new(|_| {}),
+            },
         ));
         let main = WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
@@ -344,8 +462,9 @@ mod ipc_tests {
         assert_eq!(info["path"], kb.path().to_string_lossy().as_ref());
 
         let list = invoke(&main, "kb_list", json!({})).unwrap();
-        assert_eq!(list[0]["path"], "self/底色.md");
-        assert!(list[0]["mtime"].is_u64());
+        assert_eq!(list[0]["path"], "AGENTS.md");
+        assert_eq!(list[1]["path"], "self/底色.md");
+        assert!(list[1]["mtime"].is_u64());
 
         let text = invoke(&main, "kb_read", json!({ "path": "self/底色.md" })).unwrap();
         assert_eq!(text, "### D01 示例\n");
@@ -422,6 +541,116 @@ mod ipc_tests {
         let desktop = invoke(&main, "desktop_info", json!({})).unwrap();
         assert_eq!(desktop, json!({ "captureShortcut": null }));
 
+        // What a file was at the last commit, whatever the working tree says.
+        std::fs::write(kb.path().join("self/底色.md"), "工作区里改了，还没提交\n").unwrap();
+        let head = invoke(&main, "kb_read_head", json!({ "path": "self/底色.md" })).unwrap();
+        assert_eq!(head, "### D01 示例 ✅\n");
+        let none = invoke(&main, "kb_read_head", json!({ "path": "self/没有.md" })).unwrap();
+        assert_eq!(none, Value::Null);
+        let rejected = denied(invoke(&main, "kb_read_head", json!({ "path": ".git/config" })));
+        assert!(rejected.contains(".git"), "{rejected}");
+        git(kb.path(), &["checkout", "-q", "--", "self/底色.md"]);
+
+        // AI runs: nothing is going on yet.
+        let idle = invoke(&main, "run_status", json!({})).unwrap();
+        assert_eq!(idle, json!({ "phase": "idle", "run": null, "gateAttempt": 0 }));
+        assert_eq!(invoke(&main, "run_steps", json!({})).unwrap(), json!([]));
+        assert_eq!(invoke(&main, "run_history", json!({})).unwrap(), json!([]));
+        let settings = invoke(&main, "run_settings", json!({})).unwrap();
+        assert!(settings["engine"].is_string() && settings["budgetUsd"].is_number());
+        let unknown = denied(invoke(&main, "run_start", json!({ "task": "tidy" })));
+        assert!(unknown.contains("不认识的任务"), "{unknown}");
+        let unknown = denied(invoke(
+            &main,
+            "run_start",
+            json!({ "task": "ingest", "engine": "gemini" }),
+        ));
+        assert!(unknown.contains("不认识的引擎"), "{unknown}");
+        for cmd in ["run_discard", "run_keep", "run_recheck"] {
+            let refused = denied(invoke(&main, cmd, json!({ "runId": "no-such-run" })));
+            assert!(refused.contains("没有这次运行"), "{cmd}: {refused}");
+        }
+        assert!(invoke(&main, "run_cancel", json!({})).is_err());
+
+        // A whole run through IPC, the way the main window drives it: start,
+        // fetch what the gate has to check, hand in the report.
+        let started = invoke(
+            &main,
+            "run_start",
+            json!({ "task": "ingest", "engine": "claude", "model": "sonnet" }),
+        )
+        .unwrap();
+        let run_id = started["run"]["id"].as_str().unwrap().to_string();
+        assert_eq!(started["run"]["model"], "sonnet");
+        let wait_for = |phase: &str| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(40);
+            loop {
+                let status = invoke(&main, "run_status", json!({})).unwrap();
+                if status["phase"] == phase {
+                    return status;
+                }
+                assert!(std::time::Instant::now() < deadline, "{status}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        let checking = wait_for("checking");
+        let attempt = checking["gateAttempt"].clone();
+        assert_eq!(attempt, 1);
+        // A write of an existing file is refused while the run is on.
+        let busy = denied(invoke(
+            &main,
+            "kb_write",
+            json!({ "path": "self/底色.md", "content": "x", "message": "m" }),
+        ));
+        assert!(busy.contains("知识库正忙：正在入库"), "{busy}");
+        let input = invoke(
+            &main,
+            "run_gate_input",
+            json!({ "runId": run_id, "attempt": attempt }),
+        )
+        .unwrap();
+        assert_eq!(input["task"], "ingest");
+        assert_eq!(input["queue"].as_array().unwrap().len(), 1);
+        let changed: Vec<&str> = input["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|change| change["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(changed, ["raw/inbox/新-收件箱.md", "reports/新-入库报告.md"]);
+        assert_eq!(input["changes"][0]["status"], "added");
+        assert_eq!(input["changes"][0]["after"], "# 收件箱\n\n一条\n\n第二条\n");
+        let queued = input["queue"][0]["path"].as_str().unwrap().to_string();
+        invoke(
+            &main,
+            "run_gate_report",
+            json!({
+                "runId": run_id,
+                "attempt": attempt,
+                "report": {
+                    "ok": true,
+                    "violations": [],
+                    "warnings": [],
+                    "commitPaths": changed,
+                    "deleteQueuePaths": [queued],
+                    "restoreQueuePaths": [],
+                    "summary": "通过检查",
+                    "final": null,
+                },
+            }),
+        )
+        .unwrap();
+        let done = wait_for("idle");
+        assert_eq!(done["run"]["outcome"], "committed", "{done}");
+        assert_eq!(commit_count(kb.path()), 4);
+        assert_eq!(
+            git(kb.path(), &["log", "-1", "--format=%s"]),
+            "入库：1 条（Claude）"
+        );
+        assert!(!kb.path().join(&queued).exists());
+        assert_eq!(invoke(&main, "run_history", json!({})).unwrap()[0]["id"], run_id.as_str());
+        assert!(!invoke(&main, "run_steps", json!({})).unwrap().as_array().unwrap().is_empty());
+
         // The capture window may only create files directly in inbox/.
         let capture = WebviewWindowBuilder::new(&app, "capture", Default::default())
             .build()
@@ -437,7 +666,7 @@ mod ipc_tests {
         )
         .unwrap();
         assert_eq!(saved["committed"], true);
-        assert_eq!(commit_count(kb.path()), 4);
+        assert_eq!(commit_count(kb.path()), 5);
         for path in ["self/新的.md", "inbox/裁决/2026-10-12-Q-001.md", "index.md"] {
             let refused = denied(invoke(
                 &capture,
@@ -461,12 +690,23 @@ mod ipc_tests {
             ),
             ("capture_show", json!({})),
             ("tray_set_counts", json!({ "inbox": 0, "rulings": 0 })),
+            ("kb_read_head", json!({ "path": "self/底色.md" })),
+            ("run_start", json!({ "task": "ingest" })),
+            ("run_status", json!({})),
+            ("run_steps", json!({})),
+            ("run_cancel", json!({})),
+            ("run_history", json!({})),
+            ("run_settings", json!({})),
+            ("run_gate_input", json!({ "runId": "x", "attempt": 1 })),
+            ("run_discard", json!({ "runId": "x" })),
+            ("run_keep", json!({ "runId": "x" })),
+            ("run_recheck", json!({ "runId": "x" })),
         ] {
             let refused = denied(invoke(&capture, cmd, args));
             assert!(refused.contains("not allowed"), "{cmd}: {refused}");
         }
         invoke(&capture, "capture_hide", json!({})).unwrap();
-        assert_eq!(commit_count(kb.path()), 4);
+        assert_eq!(commit_count(kb.path()), 5);
 
         // Any other window gets nothing.
         let other = WebviewWindowBuilder::new(&app, "other", Default::default())

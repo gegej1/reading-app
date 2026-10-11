@@ -5,6 +5,7 @@
 //! | `kb_root`   | –                            | `{ path, source, exists }`               |
 //! | `kb_list`   | –                            | `[{ path, mtime }]` (all `*.md`, sorted) |
 //! | `kb_read`   | `path`                       | file content (UTF-8 string)              |
+//! | `kb_read_head` | `path`                    | the content as of the last commit, or null |
 //! | `kb_write`  | `path`, `content`, `message` | `{ committed, commit }`                  |
 //! | `kb_create` | `path`, `content`, `message` | `{ committed, commit }`; never overwrites |
 //! | `kb_status` | –                            | sync status (see `sync_service`)         |
@@ -20,9 +21,9 @@
 //! Writes, creates and syncs take turns through the knowledge-base lock
 //! ([`KbLock`]): a write waits at most [`WRITE_WAIT`] for the operation in
 //! progress and then fails with a "busy" message instead of hanging. While
-//! a long-running job is going on (an AI run), writes are refused at once
-//! with that message; only quick captures (new files directly in `inbox/`)
-//! still go through, each as its own commit.
+//! an AI run is going on (see `crate::run`), writes are refused at once with
+//! that message; only quick captures (new files directly in `inbox/`) still
+//! go through, each as its own commit.
 //!
 //! Every call is logged with its name, repo-relative path, outcome and
 //! duration (reads only at debug level: a load reads every file); file
@@ -37,7 +38,7 @@ use tauri::{AppHandle, Manager, Runtime, State, Webview};
 
 use crate::events::{self, KbChanged};
 use crate::kb::lock::KbLock;
-use crate::kb::{files, git, ops, paths, root};
+use crate::kb::{changes, files, git, ops, paths, root};
 use crate::shell_env::ShellEnvState;
 use crate::sync_service::{SyncService, SyncStatus};
 
@@ -234,6 +235,47 @@ pub async fn kb_read<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Stri
     // frontend, so successful reads stay out of the log.
     log_call_at(
         "kb_read",
+        Some(&logged_path),
+        started,
+        &result,
+        log::Level::Debug,
+        |_| String::new(),
+    );
+    result
+}
+
+/// The content of a Markdown file as of the last commit (HEAD), or `None`
+/// when it is not in that commit: what a file was before an AI run (or any
+/// other uncommitted change) touched it.
+#[tauri::command]
+pub async fn kb_read_head<R: Runtime>(
+    app: AppHandle<R>,
+    shell_env: State<'_, ShellEnvState>,
+    path: String,
+) -> Result<Option<String>, String> {
+    let started = Instant::now();
+    let logged_path = path.clone();
+    let shell_env = shell_env.inner().clone();
+    let result = match resolve_root(&app) {
+        Ok(kb_root) => {
+            blocking(move || {
+                paths::validate_rel_path(&path).map_err(|e| e.to_string())?;
+                let root = canonical_root(&kb_root)?;
+                let env = &shell_env.get().env;
+                git::ensure_repo(&root, env)?;
+                let bytes = changes::read_at(&root, env, "HEAD", &path)?;
+                bytes
+                    .map(|bytes| {
+                        String::from_utf8(bytes).map_err(|_| format!("不是 UTF-8 文本：{path}"))
+                    })
+                    .transpose()
+            })
+            .await
+        }
+        Err(error) => Err(error),
+    };
+    log_call_at(
+        "kb_read_head",
         Some(&logged_path),
         started,
         &result,
