@@ -10,12 +10,33 @@
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "底色",
         "width": 1100,
-        "height": 720
+        "height": 720,
+        "visible": false
+      },
+      {
+        "label": "capture",
+        "title": "记一笔",
+        "url": "capture.html",
+        "width": 560,
+        "height": 300,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

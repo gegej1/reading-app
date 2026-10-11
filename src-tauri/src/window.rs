@@ -1,15 +1,21 @@
-//! Main window lifecycle on macOS: closing the window hides it (the app keeps
-//! running; a menu-bar icon comes later), clicking the Dock icon or launching
-//! the app again shows it, and ⌘Q (the default app menu's Quit) quits.
+//! Window lifecycle on macOS: closing the main window hides it (the app keeps
+//! running in the menu bar), clicking the Dock icon or launching the app
+//! again shows it, and ⌘Q (or 退出 in the tray menu) quits. The capture
+//! window is never closed, only hidden. Focusing the main window syncs the
+//! knowledge base (at most once a minute).
 
 use tauri::{AppHandle, Manager, RunEvent, Runtime, Window, WindowEvent};
+use tauri_plugin_global_shortcut::GlobalShortcut;
+
+use crate::capture_window::CAPTURE;
+use crate::sync_service::SyncService;
 
 /// Label of the main window (the first window in `tauri.conf.json`).
 pub const MAIN: &str = "main";
 
 /// Whether closing the window with `label` only hides it.
 pub fn close_hides(label: &str, macos: bool) -> bool {
-    macos && label == MAIN
+    label == CAPTURE || (macos && label == MAIN)
 }
 
 /// Shows, un-minimizes and focuses the main window.
@@ -24,18 +30,29 @@ pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Closing the main window hides it instead of quitting (macOS only).
+/// Closing hides instead of quitting; focusing the main window syncs.
 pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { api, .. } = event {
-        if close_hides(window.label(), cfg!(target_os = "macos")) {
-            api.prevent_close();
-            let _ = window.hide();
-            log::info!("main window closed: hidden, the app keeps running");
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            if close_hides(window.label(), cfg!(target_os = "macos")) {
+                api.prevent_close();
+                let _ = window.hide();
+                if window.label() == MAIN {
+                    log::info!("main window closed: hidden, the app keeps running");
+                }
+            }
         }
+        WindowEvent::Focused(true) if window.label() == MAIN => {
+            if let Some(service) = window.app_handle().try_state::<SyncService>() {
+                service.on_focus();
+            }
+        }
+        _ => {}
     }
 }
 
-/// App-level events: clicking the Dock icon brings the window back.
+/// App-level events: clicking the Dock icon brings the window back; on exit
+/// the sync thread and the global shortcut are released.
 pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
     match event {
         #[cfg(target_os = "macos")]
@@ -49,7 +66,17 @@ pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
                 log::info!("Dock icon clicked: main window shown again");
             }
         }
-        RunEvent::Exit => log::info!("app exiting"),
+        RunEvent::Exit => {
+            if let Some(service) = app.try_state::<SyncService>() {
+                service.stop();
+            }
+            if let Some(shortcuts) = app.try_state::<GlobalShortcut<R>>() {
+                if let Err(error) = shortcuts.unregister_all() {
+                    log::warn!("global shortcut: could not unregister on exit: {error}");
+                }
+            }
+            log::info!("app exiting");
+        }
         _ => {}
     }
 }
@@ -59,9 +86,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_main_window_on_macos_hides_on_close() {
+    fn the_main_window_hides_on_macos_and_the_capture_window_always() {
         assert!(close_hides("main", true));
         assert!(!close_hides("main", false));
-        assert!(!close_hides("capture", true));
+        assert!(close_hides("capture", true));
+        assert!(close_hides("capture", false));
+        assert!(!close_hides("other", true));
     }
 }

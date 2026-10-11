@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core defaults, the four knowledge-base commands, writing to the app log, and opening http(s) links in the default browser.",
+  "description": "Main window: core defaults (including events), the knowledge-base commands, showing the capture window, the tray counts and shortcut status, writing to the app log, and opening http(s) links in the default browser.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,12 @@
     "allow-kb-list",
     "allow-kb-read",
     "allow-kb-write",
+    "allow-kb-create",
+    "allow-kb-status",
+    "allow-kb-sync",
+    "allow-capture-show",
+    "allow-tray-set-counts",
+    "allow-desktop-info",
     "log:default",
     {
       "identifier": "opener:allow-open-url",

@@ -1,34 +1,47 @@
-//! Tauri commands the frontend uses to read and write the knowledge base.
+//! Tauri commands the frontend uses to read, write and sync the knowledge base.
 //!
-//! | command    | arguments                 | returns                                   |
-//! |------------|---------------------------|-------------------------------------------|
-//! | `kb_root`  | –                         | `{ path, source, exists }`                |
-//! | `kb_list`  | –                         | `[{ path, mtime }]` (all `*.md`, sorted)  |
-//! | `kb_read`  | `path`                    | file content (UTF-8 string)               |
-//! | `kb_write` | `path`, `content`, `message` | `{ committed, commit }`                |
+//! | command     | arguments                    | returns                                  |
+//! |-------------|------------------------------|------------------------------------------|
+//! | `kb_root`   | –                            | `{ path, source, exists }`               |
+//! | `kb_list`   | –                            | `[{ path, mtime }]` (all `*.md`, sorted) |
+//! | `kb_read`   | `path`                       | file content (UTF-8 string)              |
+//! | `kb_write`  | `path`, `content`, `message` | `{ committed, commit }`                  |
+//! | `kb_create` | `path`, `content`, `message` | `{ committed, commit }`; never overwrites |
+//! | `kb_status` | –                            | sync status (see `sync_service`)         |
+//! | `kb_sync`   | –                            | sync status after a sync                 |
 //!
 //! Paths are repo-relative POSIX paths. Errors are user-facing Chinese
-//! strings. The root is resolved on every call, so changing `config.json`
-//! takes effect without restarting. File system and git work runs on the
-//! blocking thread pool so the UI never waits on it, and git runs with the
-//! user's login-shell environment.
+//! strings; a `kb_create` whose file exists fails with a message starting
+//! with [`ops::EXISTS_PREFIX`]. The root is resolved on every call, so
+//! changing `config.json` takes effect without restarting. File system and
+//! git work runs on the blocking thread pool so the UI never waits on it, and
+//! git runs with the user's login-shell environment.
+//!
+//! Writes, creates and syncs take turns through the knowledge-base lock
+//! ([`KbLock`]): a write waits at most [`WRITE_WAIT`] for the operation in
+//! progress and then fails with a "busy" message instead of hanging.
 //!
 //! Every call is logged with its name, repo-relative path, outcome and
-//! duration; file contents and commit messages never are.
+//! duration (reads only at debug level: a load reads every file); file
+//! contents and commit messages never are.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime, State};
+use serde::{Deserialize, Serialize};
+use tauri::ipc::{CommandScope, ScopeObjectMatch};
+use tauri::{AppHandle, Manager, Runtime, State, Webview};
 
-use crate::kb::{files, git, paths, root};
+use crate::events::{self, KbChanged};
+use crate::kb::lock::KbLock;
+use crate::kb::{files, git, ops, paths, root};
 use crate::shell_env::ShellEnvState;
+use crate::sync_service::{SyncService, SyncStatus};
 
-/// Serializes writes, so two quick edits never race on git's index lock.
-#[derive(Default)]
-pub struct WriteLock(Arc<Mutex<()>>);
+/// How long a write waits for the operation holding the lock (a sync, say).
+pub const WRITE_WAIT: Duration = Duration::from_secs(45);
+/// What the lock holder is called while a file is written or created.
+pub const WRITE_OPERATION: &str = "写入";
 
 /// Where the knowledge base is and whether it exists.
 #[derive(Debug, Serialize)]
@@ -45,12 +58,14 @@ const MAX_LOGGED_ERROR: usize = 300;
 /// The log line for one command call: its name, the repo-relative path (if
 /// any), the outcome and the duration. `detail` describes a successful result
 /// (counts, flags); errors keep their user-facing message, shortened. Never
-/// given file contents or commit messages, so it cannot log them.
+/// given file contents or commit messages, so it cannot log them. Successes
+/// are logged at `ok_level`, failures always as warnings.
 pub fn call_line<T>(
     command: &str,
     path: Option<&str>,
     millis: u128,
     result: &Result<T, String>,
+    ok_level: log::Level,
     detail: impl FnOnce(&T) -> String,
 ) -> (log::Level, String) {
     let target = path.map(|p| format!(" path={p:?}")).unwrap_or_default();
@@ -63,7 +78,7 @@ pub fn call_line<T>(
                 format!(" {detail}")
             };
             (
-                log::Level::Info,
+                ok_level,
                 format!("{command}{target} ok{detail} ({millis} ms)"),
             )
         }
@@ -89,23 +104,50 @@ fn log_call<T>(
     result: &Result<T, String>,
     detail: impl FnOnce(&T) -> String,
 ) {
-    let (level, line) = call_line(command, path, started.elapsed().as_millis(), result, detail);
+    log_call_at(command, path, started, result, log::Level::Info, detail);
+}
+
+fn log_call_at<T>(
+    command: &str,
+    path: Option<&str>,
+    started: Instant,
+    result: &Result<T, String>,
+    ok_level: log::Level,
+    detail: impl FnOnce(&T) -> String,
+) {
+    let (level, line) = call_line(
+        command,
+        path,
+        started.elapsed().as_millis(),
+        result,
+        ok_level,
+        detail,
+    );
     log::log!(level, "{line}");
+}
+
+/// `config.json` in the app config dir, where `kbPath` and `captureShortcut` live.
+pub fn config_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(root::CONFIG_FILE_NAME))
 }
 
 /// Resolves the root from `DISE_KB_PATH`, `config.json` or the default.
 fn resolve_root<R: Runtime>(app: &AppHandle<R>) -> Result<root::KbRoot, String> {
-    let resolver = app.path();
-    let config_file = resolver
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join(root::CONFIG_FILE_NAME));
-    let home = resolver.home_dir().ok();
+    let home = app.path().home_dir().ok();
     root::resolve_kb_root(
         std::env::var_os(root::ENV_VAR),
-        config_file.as_deref(),
+        config_file(app).as_deref(),
         home.as_deref(),
     )
+}
+
+/// The knowledge-base folder, canonical, for work outside a command (syncs,
+/// command-line captures).
+pub fn kb_folder<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    canonical_root(&resolve_root(app)?)
 }
 
 /// The canonical root directory, or an error explaining which setting to fix.
@@ -185,16 +227,24 @@ pub async fn kb_read<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Stri
         }
         Err(error) => Err(error),
     };
-    log_call("kb_read", Some(&logged_path), started, &result, |_| {
-        String::new()
-    });
+    // A load reads every file: the summary line comes from kb_list and the
+    // frontend, so successful reads stay out of the log.
+    log_call_at(
+        "kb_read",
+        Some(&logged_path),
+        started,
+        &result,
+        log::Level::Debug,
+        |_| String::new(),
+    );
     result
 }
 
 #[tauri::command]
 pub async fn kb_write<R: Runtime>(
     app: AppHandle<R>,
-    lock: State<'_, WriteLock>,
+    webview: Webview<R>,
+    lock: State<'_, KbLock>,
     shell_env: State<'_, ShellEnvState>,
     path: String,
     content: String,
@@ -202,24 +252,19 @@ pub async fn kb_write<R: Runtime>(
 ) -> Result<git::WriteOutcome, String> {
     let started = Instant::now();
     let logged_path = path.clone();
-    let lock = Arc::clone(&lock.0);
+    let lock = lock.inner().clone();
     let shell_env = shell_env.inner().clone();
     let result = match resolve_root(&app) {
         Ok(kb_root) => {
+            let path = path.clone();
             blocking(move || {
-                // A poisoned lock only means an earlier write panicked; keep going.
-                let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let _guard = lock
+                    .acquire(WRITE_OPERATION, WRITE_WAIT)
+                    .map_err(|busy| busy.to_string())?;
                 let root = canonical_root(&kb_root)?;
-                git::validate_message(&message)?;
                 // Waits for the login-shell environment if it is still being captured.
                 let env = &shell_env.get().env;
-                // Check git first so a non-repo knowledge base is never half-updated.
-                git::ensure_repo(&root, env)?;
-                let target = paths::resolve_write(&root, &path).map_err(|e| e.to_string())?;
-                files::write_atomic(&target, &content)
-                    .map_err(|e| format!("写入文件失败：{path}（{e}）"))?;
-                git::commit_path(&root, &path, &message, env)
-                    .map_err(|e| format!("文件已写入，但 git 提交失败：{e}"))
+                ops::write_file(&root, env, &path, &content, &message)
             })
             .await
         }
@@ -232,7 +277,103 @@ pub async fn kb_write<R: Runtime>(
         &result,
         write_detail,
     );
+    if result.as_ref().is_ok_and(|outcome| outcome.committed) {
+        events::files_written(
+            &app,
+            KbChanged::new("write", Some(path), Some(webview.label())),
+        );
+    }
     result
+}
+
+/// Folders a window may create files in, from its capability (for example
+/// `{ "folder": "inbox" }` for the capture window). Without any, a window that
+/// may call `kb_create` may create files anywhere in the knowledge base.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateScope {
+    pub folder: String,
+}
+
+impl ScopeObjectMatch for CreateScope {
+    type Input = str;
+
+    /// Only files directly inside the folder, not in its subfolders.
+    fn matches(&self, rel: &str) -> bool {
+        rel.split_once('/')
+            .is_some_and(|(folder, name)| folder == self.folder && !name.contains('/'))
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn kb_create<R: Runtime>(
+    app: AppHandle<R>,
+    webview: Webview<R>,
+    scope: CommandScope<CreateScope>,
+    lock: State<'_, KbLock>,
+    shell_env: State<'_, ShellEnvState>,
+    path: String,
+    content: String,
+    message: String,
+) -> Result<git::WriteOutcome, String> {
+    let started = Instant::now();
+    let logged_path = path.clone();
+    let result = if !scope.matches(&path) {
+        let folders: Vec<&str> = scope
+            .allows()
+            .iter()
+            .map(|allowed| allowed.folder.as_str())
+            .collect();
+        Err(format!(
+            "这个窗口只能在 {} 里新建文件：{path}",
+            folders.join("、")
+        ))
+    } else {
+        match resolve_root(&app) {
+            Ok(kb_root) => {
+                let lock = lock.inner().clone();
+                let shell_env = shell_env.inner().clone();
+                let path = path.clone();
+                blocking(move || {
+                    let _guard = lock
+                        .acquire(WRITE_OPERATION, WRITE_WAIT)
+                        .map_err(|busy| busy.to_string())?;
+                    let root = canonical_root(&kb_root)?;
+                    let env = &shell_env.get().env;
+                    ops::create_file(&root, env, &path, &content, &message)
+                        .map_err(|error| error.to_string())
+                })
+                .await
+            }
+            Err(error) => Err(error),
+        }
+    };
+    log_call(
+        "kb_create",
+        Some(&logged_path),
+        started,
+        &result,
+        write_detail,
+    );
+    if result.is_ok() {
+        events::files_written(
+            &app,
+            KbChanged::new("create", Some(path), Some(webview.label())),
+        );
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn kb_status(service: State<'_, SyncService>) -> Result<SyncStatus, String> {
+    let service = service.inner().clone();
+    blocking(move || Ok(service.status())).await
+}
+
+#[tauri::command]
+pub async fn kb_sync(service: State<'_, SyncService>) -> Result<SyncStatus, String> {
+    let service = service.inner().clone();
+    blocking(move || Ok(service.sync_now("manual"))).await
 }
 
 /// What a successful write did: whether it committed, and the short hash.
@@ -258,7 +399,14 @@ mod tests {
             commit: Some("0123456789abcdef0123".into()),
         });
         assert_eq!(
-            call_line("kb_write", Some("self/底色.md"), 42, &ok, write_detail),
+            call_line(
+                "kb_write",
+                Some("self/底色.md"),
+                42,
+                &ok,
+                log::Level::Info,
+                write_detail
+            ),
             (
                 log::Level::Info,
                 "kb_write path=\"self/底色.md\" ok committed=true commit=0123456789 (42 ms)"
@@ -268,27 +416,52 @@ mod tests {
 
         let listed: Result<Vec<u8>, String> = Ok(vec![0; 52]);
         assert_eq!(
-            call_line("kb_list", None, 7, &listed, |list| format!(
-                "files={}",
-                list.len()
-            ))
+            call_line("kb_list", None, 7, &listed, log::Level::Info, |list| {
+                format!("files={}", list.len())
+            })
             .1,
             "kb_list ok files=52 (7 ms)"
         );
 
         let read: Result<String, String> = Ok("文件内容绝不进日志".into());
-        let (_, line) = call_line("kb_read", Some("wiki/概念/甲.md"), 1, &read, |_| {
-            String::new()
-        });
+        let (level, line) = call_line(
+            "kb_read",
+            Some("wiki/概念/甲.md"),
+            1,
+            &read,
+            log::Level::Debug,
+            |_| String::new(),
+        );
+        assert_eq!(level, log::Level::Debug);
         assert_eq!(line, "kb_read path=\"wiki/概念/甲.md\" ok (1 ms)");
         assert!(!line.contains("文件内容"));
+    }
+
+    #[test]
+    fn create_scopes_allow_files_directly_in_their_folder() {
+        let inbox = CreateScope {
+            folder: "inbox".into(),
+        };
+        assert!(inbox.matches("inbox/2026-10-12T14-03-22-mac.md"));
+        assert!(!inbox.matches("inbox/裁决/2026-10-12-Q-001.md"));
+        assert!(!inbox.matches("self/底色.md"));
+        assert!(!inbox.matches("inbox.md"));
+        assert!(!inbox.matches("inboxes/a.md"));
+        assert!(!inbox.matches("x/inbox/a.md"));
     }
 
     #[test]
     fn logs_errors_shortened() {
         let failed: Result<(), String> = Err("文件已写入，但 git 提交失败：index.lock".into());
         assert_eq!(
-            call_line("kb_write", Some("a.md"), 3, &failed, |_| String::new()),
+            call_line(
+                "kb_write",
+                Some("a.md"),
+                3,
+                &failed,
+                log::Level::Info,
+                |_| String::new()
+            ),
             (
                 log::Level::Warn,
                 "kb_write path=\"a.md\" failed (3 ms): 文件已写入，但 git 提交失败：index.lock"
@@ -296,7 +469,10 @@ mod tests {
             )
         );
         let long: Result<(), String> = Err("错".repeat(MAX_LOGGED_ERROR + 50));
-        let (_, line) = call_line("kb_read", None, 0, &long, |_| String::new());
+        let (level, line) = call_line("kb_read", None, 0, &long, log::Level::Debug, |_| {
+            String::new()
+        });
+        assert_eq!(level, log::Level::Warn, "failures are always warnings");
         assert!(line.ends_with('…'), "{line}");
         assert_eq!(line.matches('错').count(), MAX_LOGGED_ERROR);
     }

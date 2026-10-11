@@ -18,8 +18,10 @@ name = "dise_lib"
 tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
-# "tray-icon" is enabled for the menu-bar icon that a later milestone adds.
-tauri = { version = "2.12.3", features = ["tray-icon"] }
+# "tray-icon": the menu-bar icon. "macos-private-api": the capture window is
+# transparent (a rounded paper slip), which needs `macOSPrivateApi` in
+# tauri.conf.json and this feature.
+tauri = { version = "2.12.3", features = ["tray-icon", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Log to stdout and ~/Library/Logs/com.gegej1.dise/ (see src/logging.rs).
@@ -31,10 +33,24 @@ time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 tauri-plugin-single-instance = "2.5.3"
 # Opens http(s) links in the default browser.
 tauri-plugin-opener = "2.7.1"
-# setsid/kill for the login-shell capture (see src/shell_env.rs).
+# The system-wide shortcut that shows the capture window.
+tauri-plugin-global-shortcut = "2.4.1"
+# setsid/kill for the login-shell capture (see src/shell_env.rs) and for git
+# commands that run under a timeout (see src/kb/git.rs).
 libc = "0.2"
+
+# Which app was in front before the capture window opened, to hand the focus
+# back when it closes (see src/capture_window.rs). Already part of the build
+# through tao and tauri-plugin-opener; only the "libc" feature is added.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "libc",
+  "NSRunningApplication",
+  "NSWorkspace",
+] }
 
 [dev-dependencies]
 # `tauri::test` (mock runtime + IPC helpers) for the command tests. Dev-only:
 # with resolver 2+ this feature is not enabled in normal builds.
-tauri = { version = "2.12.3", features = ["tray-icon", "test"] }
+tauri = { version = "2.12.3", features = ["tray-icon", "macos-private-api", "test"] }

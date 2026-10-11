@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture",
+  "description": "Capture window (记一笔): create new files directly in inbox/ and nothing else in the knowledge base (no reading, listing or replacing), hide itself, hear when it is shown, and write to the app log.",
+  "windows": ["capture"],
+  "permissions": [
+    {
+      "identifier": "allow-kb-create",
+      "allow": [{ "folder": "inbox" }]
+    },
+    "allow-capture-hide",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "log:default"
+  ]
+}

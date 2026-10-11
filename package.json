@@ -14,6 +14,7 @@
     "test:kb": "vitest run src/domain/kb.realkb.test.ts",
     "typecheck": "tsc --noEmit",
     "icon": "node scripts/build-icon.mjs",
+    "icon:tray": "node scripts/build-tray-icon.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

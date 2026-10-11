@@ -1,6 +1,6 @@
-//! Where the knowledge base lives.
+//! Where the knowledge base lives, and the other settings in `config.json`.
 //!
-//! Resolution order (first match wins):
+//! Resolution order of the knowledge base (first match wins):
 //! 1. the `DISE_KB_PATH` environment variable;
 //! 2. the `kbPath` key of `config.json` in the app config dir
 //!    (`~/Library/Application Support/com.gegej1.dise/` on macOS);
@@ -21,6 +21,8 @@ pub const ENV_VAR: &str = "DISE_KB_PATH";
 pub const CONFIG_FILE_NAME: &str = "config.json";
 /// Key in `config.json` that holds the knowledge-base path.
 pub const CONFIG_KEY: &str = "kbPath";
+/// Key in `config.json` that holds the shortcut of the capture window.
+pub const SHORTCUT_KEY: &str = "captureShortcut";
 /// Default location, relative to the home directory.
 pub const DEFAULT_RELATIVE: &str = "Desktop/GHJProject/阅读";
 
@@ -74,7 +76,7 @@ pub fn resolve_kb_root(
         });
     }
 
-    if let Some(value) = config_file.and_then(read_config_kb_path) {
+    if let Some(value) = config_file.and_then(|file| read_config_string(file, CONFIG_KEY)) {
         let path = expand_home(Path::new(&value), home)
             .map_err(|e| format!("config.json 里的 {CONFIG_KEY} 无效：{e}"))?;
         return Ok(KbRoot {
@@ -90,11 +92,12 @@ pub fn resolve_kb_root(
     })
 }
 
-/// Reads the non-empty string value of `kbPath`, or `None` for anything else.
-fn read_config_kb_path(config_file: &Path) -> Option<String> {
+/// Reads the non-empty string value of `key` in `config.json`, or `None` for
+/// anything else (no file, not JSON, not a string, only whitespace).
+pub fn read_config_string(config_file: &Path, key: &str) -> Option<String> {
     let text = fs::read_to_string(config_file).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let value = json.get(CONFIG_KEY)?.as_str()?.trim();
+    let value = json.get(key)?.as_str()?.trim();
     (!value.is_empty()).then(|| value.to_string())
 }
 
@@ -225,6 +228,25 @@ mod tests {
         );
         assert_eq!(root.source, RootSource::Default);
         assert!(resolve_kb_root(None, None, None).is_err());
+    }
+
+    #[test]
+    fn reads_other_settings_from_the_same_file() {
+        let dir = TempDir::new("root-config-other");
+        let config = dir.write(
+            "config.json",
+            r#"{"kbPath": "/kb", "captureShortcut": " Ctrl+Alt+K "}"#,
+        );
+        assert_eq!(
+            read_config_string(&config, SHORTCUT_KEY).as_deref(),
+            Some("Ctrl+Alt+K")
+        );
+        let empty = dir.write("empty.json", r#"{"captureShortcut": ""}"#);
+        assert_eq!(read_config_string(&empty, SHORTCUT_KEY), None);
+        assert_eq!(
+            read_config_string(&dir.path().join("missing.json"), SHORTCUT_KEY),
+            None
+        );
     }
 
     #[test]
