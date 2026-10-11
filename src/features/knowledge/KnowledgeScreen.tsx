@@ -30,8 +30,33 @@ interface CatalogGroup {
 const zhCollator = new Intl.Collator("zh-Hans-CN", { numeric: true });
 const byTitle = (a: CatalogItem, b: CatalogItem) => zhCollator.compare(a.title, b.title);
 
+/** Books lead the shelf: they are what most new pages will come from. */
+const FIRST_WIKI_GROUP = "书";
+
+function wikiCatalogGroup(name: string, docs: readonly KbDoc[]): CatalogGroup {
+  return {
+    name,
+    items: docs
+      .map((doc) => {
+        const evidence = fmString(doc.frontmatter, "证据");
+        return {
+          doc,
+          badge: null,
+          title: doc.title,
+          summary: oneLiner(doc.body),
+          status: evidence ? `证据 ${evidence}` : null,
+        };
+      })
+      .sort(byTitle),
+  };
+}
+
+/** The shelf: 书 first, then 判例, the other wiki folders, then 体系. */
 function buildCatalog(model: KbModel): CatalogGroup[] {
   const groups: CatalogGroup[] = [];
+  const books = model.wikiGroups.find((group) => group.name === FIRST_WIKI_GROUP);
+  if (books) groups.push(wikiCatalogGroup(books.name, books.docs));
+
   const precedents = model.precedents
     .map((p): CatalogItem | null => {
       const doc = model.byPath.get(p.path);
@@ -43,21 +68,7 @@ function buildCatalog(model: KbModel): CatalogGroup[] {
   if (precedents.length > 0) groups.push({ name: "判例", items: precedents });
 
   for (const group of model.wikiGroups) {
-    groups.push({
-      name: group.name,
-      items: group.docs
-        .map((doc) => {
-          const evidence = fmString(doc.frontmatter, "证据");
-          return {
-            doc,
-            badge: null,
-            title: doc.title,
-            summary: oneLiner(doc.body),
-            status: evidence ? `证据 ${evidence}` : null,
-          };
-        })
-        .sort(byTitle),
-    });
+    if (group !== books) groups.push(wikiCatalogGroup(group.name, group.docs));
   }
 
   if (model.systems.length > 0) {
@@ -74,7 +85,7 @@ function buildCatalog(model: KbModel): CatalogGroup[] {
         .sort(byTitle),
     });
   }
-  return groups;
+  return groups.filter((group) => group.items.length > 0);
 }
 
 function SearchResults({ query }: { query: string }) {
@@ -164,7 +175,8 @@ export function KnowledgeScreen() {
         title="书架"
         meta={
           <span>
-            判例、概念、人物与公司、体系，共 <span className="num">{total}</span> 页
+            {groups.length > 0 ? `${groups.map((group) => group.name).join("、")}，` : null}共{" "}
+            <span className="num">{total}</span> 页
           </span>
         }
       />

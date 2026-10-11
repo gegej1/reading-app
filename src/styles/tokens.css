@@ -4,8 +4,10 @@
 :root {
   color-scheme: light dark;
 
-  --font-ui: "PingFang SC", -apple-system, BlinkMacSystemFont, "Hiragino Sans GB",
-    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  /* A Latin system font comes first, so ASCII in ids and dates (P-001,
+     2026-10-11, I-12) is set in Latin glyphs; CJK text falls through to PingFang. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
   --font-num: "Iowan Old Style", "Palatino", "Palatino Linotype", "Book Antiqua", Georgia,
     "Songti SC", serif;

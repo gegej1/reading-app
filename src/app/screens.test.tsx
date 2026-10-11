@@ -72,8 +72,8 @@ describe("今日", () => {
     expect(t).toMatch(/待裁决 5 项 其中高优先级 2 项/);
     expect(t).toMatch(/待抽查 4 条/);
     expect(t).toContain("入库报告（2026-09-08 第二次）");
-    expect(html).toMatch(/data-hint="M3[^"]*"[^>]*><button type="button" class="btn btn--seal" disabled="">入库 ▶/);
-    expect(html).toMatch(/data-hint="M2[^"]*"[^>]*><button type="button" class="btn btn--quiet" disabled="">✎ 记一笔/);
+    expect(html).toMatch(/data-hint="还没开放[^"]*"[^>]*><button type="button" class="btn btn--seal" disabled="">入库 ▶/);
+    expect(html).toMatch(/data-hint="还没开放[^"]*"[^>]*><button type="button" class="btn btn--quiet" disabled="">✎ 记一笔/);
     expect(html).toContain('href="/rulings?tab=audit"');
     // 2026-10-12 picks a deterministic entry.
     expect(html).toMatch(/class="letter__id">D0\d</);
@@ -114,6 +114,12 @@ describe("裁决", () => {
     expect(html).not.toContain("Q-005");
   });
 
+  it("says in plain words that answering is not available yet", () => {
+    const t = text(render("/rulings"));
+    expect(t).toContain("现在只能查看");
+    expect(t).not.toContain("只读 M");
+  });
+
   it("shows the audit checklist read-only on its tab", () => {
     const html = render("/rulings?tab=audit");
     expect(html.match(/<li class="audit-row( is-checked)?">/g)?.length).toBe(6);
@@ -124,17 +130,44 @@ describe("裁决", () => {
 });
 
 describe("知识", () => {
-  it("groups pages into 判例, wiki folders and 体系", () => {
+  it("shows 书 first, then 判例, the other wiki folders and 体系", () => {
     const html = render("/knowledge");
     const groups = [...html.matchAll(/class="catalog__title">([^<]+)</g)].map((m) => m[1]);
-    expect(groups).toEqual(["判例", "概念", "人物与公司", "书", "体系"]);
+    expect(groups).toEqual(["书", "判例", "概念", "人物与公司", "体系"]);
+    expect(text(html)).toContain("书、判例、概念、人物与公司、体系，共 9 页");
     expect(html).toContain("写下来的过程，就是把模糊的想法变清楚的过程。");
+  });
+
+  it("lists only the groups that exist in the subtitle", () => {
+    const small = buildKbModel([
+      { path: "wiki/概念/甲.md", content: "# 甲\n" },
+      { path: "wiki/工具/乙.md", content: "# 乙\n" },
+    ]);
+    const t = text(render("/knowledge", { model: small, resolveLink: makeLinkResolver(small) }));
+    expect(t).toContain("概念、工具，共 2 页");
+    expect(t).not.toContain("判例、");
   });
 
   it("searches titles and full text from the URL query", () => {
     const html = render(`/knowledge?q=${encodeURIComponent("重复确认")}`);
     expect(text(html)).toContain("找到 1 页");
     expect(html).toContain('<mark class="hl">重复确认</mark>');
+  });
+});
+
+describe("copy", () => {
+  it("never shows milestone names, not even in tooltips", () => {
+    for (const route of ["/", "/dise", "/rulings", "/rulings?tab=audit", "/knowledge", "/raw"]) {
+      const html = route === "/" ? renderToStaticMarkup(
+        <KbContext.Provider value={contextValue()}>
+          <MemoryRouter>
+            <TodayScreen now={new Date(2026, 9, 12)} />
+          </MemoryRouter>
+        </KbContext.Provider>,
+      ) : render(route);
+      const visible = `${text(html)} ${[...html.matchAll(/(?:title|data-hint|aria-label)="([^"]*)"/g)].map((m) => m[1]).join(" ")}`;
+      expect(visible, route).not.toMatch(/(?<![A-Za-z])M[0-9](?![0-9.])/);
+    }
   });
 });
 

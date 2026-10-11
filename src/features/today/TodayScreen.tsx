@@ -4,9 +4,7 @@ import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, pageRoute } from "../../app/links";
 import { cx, EmptyState, Hint, Numbered, Seal } from "../../ui/components";
 import { formatIsoDate, todayLabel } from "../../ui/format";
-
-/** Quotes up to this length are set vertically on the letter paper. */
-const VERTICAL_LIMIT = 96;
+import { useVerticalLetter } from "./useVerticalLetter";
 
 function LedgerCell(props: {
   label: string;
@@ -39,6 +37,29 @@ function LedgerCell(props: {
   );
 }
 
+/** The letter paper: vertical when it fits (see useVerticalLetter), else horizontal. */
+function LetterPaper({ entry }: { entry: DiseEntry }) {
+  const quote = stripMarkdown(entry.quote) || entry.title;
+  const { vertical, paperRef } = useVerticalLetter(quote);
+  return (
+    <div ref={paperRef} className={cx("letter__paper", vertical ? "is-vertical" : "is-horizontal")}>
+      <blockquote className="letter__quote">{quote}</blockquote>
+      <footer className="letter__sign">
+        <span className="letter__dash" aria-hidden="true">
+          ——
+        </span>
+        <span className="letter__id">{entry.id}</span>
+        <span className="letter__title">{entry.title}</span>
+        {entry.confirmed ? (
+          <span className="letter__seal">
+            <Seal size="sm" />
+          </span>
+        ) : null}
+      </footer>
+    </div>
+  );
+}
+
 function DailyLetter({ entry, section }: { entry: DiseEntry | null; section: DiseSection | null }) {
   if (!entry) {
     return (
@@ -50,29 +71,13 @@ function DailyLetter({ entry, section }: { entry: DiseEntry | null; section: Dis
       </article>
     );
   }
-  const quote = stripMarkdown(entry.quote) || entry.title;
-  const vertical = quote.length <= VERTICAL_LIMIT;
   return (
     <article className="letter rise" style={{ animationDelay: "180ms" }} aria-label="今日一条底色">
       <p className="card-label">
         今日一条底色
         {section?.heading ? <span className="card-label__aside">{section.heading}</span> : null}
       </p>
-      <div className={cx("letter__paper", vertical ? "is-vertical" : "is-horizontal")}>
-        <blockquote className="letter__quote">{quote}</blockquote>
-        <footer className="letter__sign">
-          <span className="letter__dash" aria-hidden="true">
-            ——
-          </span>
-          <span className="letter__id">{entry.id}</span>
-          <span className="letter__title">{entry.title}</span>
-          {entry.confirmed ? (
-            <span className="letter__seal">
-              <Seal size="sm" />
-            </span>
-          ) : null}
-        </footer>
-      </div>
+      <LetterPaper key={entry.id} entry={entry} />
       <Link to={diseEntryRoute(entry.id)} className="text-link letter__more">
         在底色里看这一条 →
       </Link>
@@ -98,7 +103,7 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
             <span className="num">{label.year}</span> · {label.weekday}
           </p>
         </div>
-        <Hint text="M2 开放：随手记一笔，直接进收件箱" align="end">
+        <Hint text="还没开放：随手记一笔，直接进收件箱" align="end">
           <button type="button" className="btn btn--quiet" disabled>
             ✎ 记一笔
           </button>
@@ -168,7 +173,7 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
           </section>
 
           <div className="today__actions rise" style={{ animationDelay: "300ms" }}>
-            <Hint text="M3 开放：在 App 里发起入库">
+            <Hint text="还没开放：在 App 里发起入库">
               <button type="button" className="btn btn--seal" disabled>
                 入库 ▶
               </button>

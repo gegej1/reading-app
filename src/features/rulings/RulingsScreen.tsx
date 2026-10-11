@@ -175,9 +175,7 @@ export function RulingsScreen() {
             <span>
               待抽查 <span className="num">{unchecked}</span> 条
             </span>
-            <Chip tone="ink" title="回答裁决和勾选抽查会在后续版本开放">
-              M1 只读
-            </Chip>
+            <span className="rulings__note">现在只能查看，回答裁决和勾选抽查还没开放</span>
           </>
         }
       />

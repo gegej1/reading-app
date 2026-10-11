@@ -22,6 +22,8 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-kerning: normal;
+  /* Old-style figures make a zero look like the letter o (已确认 0 / 13, D01). */
+  font-variant-numeric: lining-nums;
 }
 
 ::selection {
@@ -52,7 +54,7 @@ code {
 
 .num {
   font-family: var(--font-num);
-  font-variant-numeric: oldstyle-nums proportional-nums;
+  font-variant-numeric: lining-nums proportional-nums;
   letter-spacing: 0.01em;
 }
 

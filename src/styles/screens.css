@@ -211,6 +211,13 @@
   color: var(--ink-faint);
 }
 
+/* In vertical text two em dashes leave a gap between them (WebKit and
+   Chromium alike), so the dash is drawn as one line; the text stays for copying. */
+.letter__paper.is-vertical .letter__dash {
+  color: transparent;
+  background: linear-gradient(var(--ink-faint), var(--ink-faint)) center / 1px 100% no-repeat;
+}
+
 .letter__more {
   display: inline-block;
   margin-top: 12px;
@@ -569,6 +576,11 @@
 }
 
 /* ================= 裁决 ================= */
+
+.rulings__note {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
 
 .tabs {
   display: flex;

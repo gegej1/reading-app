@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:kb": "vitest run src/domain/kb.realkb.test.ts",
     "typecheck": "tsc --noEmit",
+    "icon": "node scripts/build-icon.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
