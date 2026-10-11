@@ -7,9 +7,11 @@
   "packageManager": "pnpm@10.12.4",
   "scripts": {
     "dev": "vite",
+    "dev:kb": "vite --mode kb",
     "build": "tsc --noEmit && vite build",
     "build:web": "tsc --noEmit && vite build --mode web",
     "test": "vitest run",
+    "test:kb": "vitest run src/domain/kb.realkb.test.ts",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri"
   },
