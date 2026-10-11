@@ -44,6 +44,13 @@ cargo test --manifest-path src-tauri/Cargo.toml   # Rust 测试
 
 `pnpm dev:kb` 只读：中间件只提供 `GET /__kb/list` 和 `GET /__kb/read?path=`，只接受本机请求，并且只在开发服务器里存在，不会进入任何构建产物。
 
+## 桌面 App 的行为
+
+- **窗口**：点关闭按钮只是把窗口藏起来，App 仍在运行；点 Dock 图标再显示；⌘Q 退出。再次打开 App 会切回已经在运行的那一个，不会开第二个。
+- **外部链接**：http / https 链接用默认浏览器打开（网页版在新标签页打开）。
+- **命令行环境**：从 Finder 启动的 App 拿不到 shell 配置里的环境变量，所以 App 启动时在后台跑一次登录 shell（`$SHELL -ilc`，最多 10 秒），记下 `PATH`、代理等变量，之后启动的 `git` 等子进程都用这份环境。失败时退回到固定的 `PATH`（Homebrew、`~/.npm-global/bin` 等）加系统代理设置（`scutil --proxy`）。
+- **日志**：`~/Library/Logs/com.gegej1.dise/dise.log`（满 2 MB 轮换，保留 3 份旧文件）。记录每个命令的名称、路径、结果和耗时，以及前端载入结果和未捕获的错误；不记录文件内容、提交说明和环境变量的值。
+
 ## 路径安全
 
 前端传来的路径都要过同一套规则（Rust：`src-tauri/src/kb/paths.rs`，TypeScript：`src/store/kbPath.ts`）：只接受知识库内的相对 POSIX 路径；拒绝绝对路径、`.` / `..` 段、`.git/` 和其他隐藏目录、非 `.md` 文件；符号链接解析后必须仍在知识库内。写入是原子的（临时文件 + 重命名），提交只包含这一个文件。
@@ -59,6 +66,6 @@ src/
   ui/           Markdown 渲染（含双链 remark 插件）与通用组件
   styles/       样式（CSS 变量，无组件库）
 dev/            `pnpm dev:kb` 的只读中间件（只在开发服务器里使用）
-src-tauri/      Tauri 桌面壳（Rust）：kb_root / kb_list / kb_read / kb_write
+src-tauri/      Tauri 桌面壳（Rust）：kb_root / kb_list / kb_read / kb_write、登录 shell 环境、日志、窗口
 runners/        任务提示词模板（后续加入）
 ```

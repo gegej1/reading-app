@@ -3,6 +3,7 @@ import { loadKb, type KbModel } from "../domain";
 import { canWrite, createStore, storeLabel } from "../store/selectStore";
 import type { KbStore } from "../store/types";
 import { KbContext, type KbContextValue } from "./KbContext";
+import { desktop, kbLoadSummary } from "./desktop";
 import { createKbEditor } from "./editFile";
 import { makeLinkResolver } from "./links";
 
@@ -53,10 +54,14 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
         const root = await rootPath(store);
         if (!cancelled) setSourceDetail(root);
         const model = await loadKb(store);
-        if (!cancelled && seq === loadSeq.current) setState({ status: "ready", store, model });
+        if (!cancelled && seq === loadSeq.current) {
+          setState({ status: "ready", store, model });
+          desktop.log("info", kbLoadSummary("kb loaded", model, store));
+        }
       } catch (error) {
         if (!cancelled && seq === loadSeq.current) {
           setState({ status: "error", message: errorText(error) });
+          desktop.log("error", `kb load failed: ${errorText(error)}`);
         }
       }
     })();
@@ -82,9 +87,15 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
     setReloading(true);
     try {
       const model = await loadKb(store);
-      if (seq === loadSeq.current) setState({ status: "ready", store, model });
+      if (seq === loadSeq.current) {
+        setState({ status: "ready", store, model });
+        desktop.log("info", kbLoadSummary("kb reloaded", model, store));
+      }
     } catch (error) {
-      if (seq === loadSeq.current) notify(`重新载入失败：${errorText(error)}`);
+      if (seq === loadSeq.current) {
+        notify(`重新载入失败：${errorText(error)}`);
+        desktop.log("warn", `kb reload failed: ${errorText(error)}`);
+      }
     } finally {
       if (seq === loadSeq.current) setReloading(false);
     }

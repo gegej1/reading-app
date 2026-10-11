@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { findAnchorTarget } from "./anchors";
 import { cx } from "./components";
+import { ExternalLink, isExternalUrl } from "./ExternalLink";
 import { remarkHeadingIds } from "./remarkHeadingIds";
 import { remarkWikilinks, type WikilinkTarget } from "./remarkWikilinks";
 
@@ -14,7 +15,6 @@ export interface MarkdownProps {
   className?: string;
 }
 
-const EXTERNAL = /^(?:https?:|mailto:)/i;
 const HEADINGS = "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]";
 
 /**
@@ -32,11 +32,11 @@ function scrollToAnchor(event: MouseEvent<HTMLAnchorElement>, fragment: string) 
 }
 
 function MarkdownLink({ href, children, title, className, ...rest }: ComponentProps<"a">) {
-  if (href && EXTERNAL.test(href)) {
+  if (href !== undefined && isExternalUrl(href)) {
     return (
-      <a {...rest} className={className} href={href} title={title ?? href} target="_blank" rel="noreferrer noopener">
+      <ExternalLink {...rest} className={className} href={href} title={title}>
         {children}
-      </a>
+      </ExternalLink>
     );
   }
   // `#/…` is an app route (resolved wikilinks); the hash router follows it.
@@ -60,7 +60,8 @@ function MarkdownLink({ href, children, title, className, ...rest }: ComponentPr
       </a>
     );
   }
-  // Relative file links would navigate the webview away from the app.
+  // Relative file links would navigate the webview away from the app, and other
+  // schemes (mailto:, file:, …) are not opened from KB pages.
   return (
     <span className="link--local" title={href}>
       {children}

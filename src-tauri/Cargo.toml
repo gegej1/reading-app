@@ -22,6 +22,17 @@ tauri-build = { version = "2.7.2", features = [] }
 tauri = { version = "2.12.3", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Log to stdout and ~/Library/Logs/com.gegej1.dise/ (see src/logging.rs).
+tauri-plugin-log = "2.10.1"
+log = "0.4"
+# Local timestamps in log lines (already used by tauri-plugin-log).
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
+# A second launch focuses the running app.
+tauri-plugin-single-instance = "2.5.3"
+# Opens http(s) links in the default browser.
+tauri-plugin-opener = "2.7.1"
+# setsid/kill for the login-shell capture (see src/shell_env.rs).
+libc = "0.2"
 
 [dev-dependencies]
 # `tauri::test` (mock runtime + IPC helpers) for the command tests. Dev-only:

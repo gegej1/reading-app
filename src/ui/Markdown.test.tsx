@@ -59,10 +59,13 @@ describe("Markdown", () => {
   });
 
   it("opens external links outside the app and neutralises local file links", () => {
-    const html = render("[官网](https://example.com) [文件](other.md)");
+    const html = render("[官网](https://example.com) [文件](other.md) [邮件](mailto:someone@example.com)");
+    expect(html).toContain('href="https://example.com"');
     expect(html).toContain('target="_blank"');
-    expect(html).toContain('rel="noreferrer noopener"');
+    expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('<span class="link--local" title="other.md">文件</span>');
+    // Only http(s) leaves the app; other schemes are not clickable.
+    expect(html).toContain('<span class="link--local" title="mailto:someone@example.com">邮件</span>');
   });
 
   it("does not render raw HTML from the source", () => {

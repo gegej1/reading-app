@@ -10,6 +10,7 @@ import {
   sameNamePaths,
 } from "../../app/links";
 import { Chip, EmptyState } from "../../ui/components";
+import { ExternalLink, isExternalUrl } from "../../ui/ExternalLink";
 import { Markdown } from "../../ui/Markdown";
 
 /** Frontmatter values as short display strings. */
@@ -133,10 +134,8 @@ export function PageScreen() {
             <div className="prop" key={key}>
               <dt>{key}</dt>
               <dd>
-                {/^https?:\/\/\S+$/.test(value) ? (
-                  <a href={value} target="_blank" rel="noreferrer noopener">
-                    {value}
-                  </a>
+                {isExternalUrl(value) && !/\s/.test(value) ? (
+                  <ExternalLink href={value}>{value}</ExternalLink>
                 ) : (
                   value
                 )}
