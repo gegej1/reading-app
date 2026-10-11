@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryStore } from "./memoryStore";
+import { KbFileExistsError } from "./types";
 
 describe("createMemoryStore", () => {
   const files = {
@@ -41,6 +42,23 @@ describe("createMemoryStore", () => {
     await store.write("a.md", "2", "改");
     expect(seed["a.md"]).toBe("1");
     expect(store.snapshot()).toEqual({ "a.md": "2" });
+  });
+
+  it("creates new files but never overwrites", async () => {
+    let clock = 1000;
+    const store = createMemoryStore(files, { now: () => clock });
+    clock = 3000;
+    await store.create("inbox/2026-10-12T14-03-22-web.md", "一条\n", "收件箱：记一笔（web）");
+    expect(await store.read("inbox/2026-10-12T14-03-22-web.md")).toBe("一条\n");
+    expect(store.commits).toEqual([{ path: "inbox/2026-10-12T14-03-22-web.md", message: "收件箱：记一笔（web）" }]);
+
+    const exists = store.create("self/底色.md", "覆盖？", "不行");
+    await expect(exists).rejects.toBeInstanceOf(KbFileExistsError);
+    await expect(store.create("self/底色.md", "覆盖？", "不行")).rejects.toMatchObject({ code: "exists" });
+    expect(await store.read("self/底色.md")).toBe("# 底色\n");
+    expect(store.commits).toHaveLength(1);
+    await expect(store.create("../x.md", "x", "m")).rejects.toThrow(/路径不安全/);
+    await expect(store.create("inbox/y.md", "x", " ")).rejects.toThrow(/提交说明/);
   });
 
   it("applies the same path rules as the real stores", async () => {

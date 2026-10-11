@@ -23,4 +23,20 @@ export interface KbStore {
   read(path: string): Promise<string>;
   /** Replaces one file and records the change with `message` (a git commit for real stores). */
   write(path: string, content: string, message: string): Promise<void>;
+  /**
+   * Creates a new file and records it with `message`. Never overwrites: when
+   * the file exists it fails with {@link KbFileExistsError}.
+   */
+  create(path: string, content: string, message: string): Promise<void>;
+}
+
+/** `create` found a file with that name already; nothing was changed. */
+export class KbFileExistsError extends Error {
+  readonly code = "exists";
+  readonly path: string;
+  constructor(path: string) {
+    super(`文件已存在：${path}`);
+    this.name = "KbFileExistsError";
+    this.path = path;
+  }
 }

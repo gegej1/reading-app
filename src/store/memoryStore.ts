@@ -1,5 +1,5 @@
 import { assertCommitMessage, assertKbPath } from "./kbPath";
-import type { KbFileEntry, KbStore } from "./types";
+import { KbFileExistsError, type KbFileEntry, type KbStore } from "./types";
 
 export interface MemoryCommit {
   path: string;
@@ -42,6 +42,13 @@ export function createMemoryStore(
     async write(path: string, content: string, message: string): Promise<void> {
       assertKbPath(path);
       assertCommitMessage(message);
+      files.set(path, { content, mtime: now() });
+      commits.push({ path, message });
+    },
+    async create(path: string, content: string, message: string): Promise<void> {
+      assertKbPath(path);
+      assertCommitMessage(message);
+      if (files.has(path)) throw new KbFileExistsError(path);
       files.set(path, { content, mtime: now() });
       commits.push({ path, message });
     },

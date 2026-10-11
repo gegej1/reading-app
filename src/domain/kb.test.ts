@@ -175,6 +175,7 @@ describe("loadKb", () => {
         return "# 底色\n";
       },
       write: async () => undefined,
+      create: async () => undefined,
     };
     const model = await loadKb(store);
     expect(model.docs.map((d) => [d.path, d.mtime])).toEqual([["self/底色.md", 1]]);
@@ -188,6 +189,7 @@ describe("loadKb", () => {
         throw new Error("boom");
       },
       write: async () => undefined,
+      create: async () => undefined,
     };
     await expect(loadKb(store)).rejects.toThrow(/a\.md.*boom/);
   });

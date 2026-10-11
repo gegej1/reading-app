@@ -37,5 +37,8 @@ export function createDevStore(
     async write(): Promise<void> {
       throw new Error(DEV_READ_ONLY_MESSAGE);
     },
+    async create(): Promise<void> {
+      throw new Error(DEV_READ_ONLY_MESSAGE);
+    },
   };
 }

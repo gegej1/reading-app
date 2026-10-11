@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import type { KbFileEntry, KbStore } from "./types";
+import { KbFileExistsError, type KbFileEntry, type KbStore } from "./types";
 
 /** Signature of `invoke` from @tauri-apps/api/core (injectable for tests). */
 export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -11,7 +11,10 @@ export interface KbRootInfo {
   exists: boolean;
 }
 
-/** What `kb_write` returns. */
+/** How `kb_create` starts its message when the file exists (see src-tauri/src/kb/ops.rs). */
+const EXISTS_PREFIX = "文件已存在：";
+
+/** What `kb_write` and `kb_create` return. */
 export interface KbWriteOutcome {
   committed: boolean;
   commit: string | null;
@@ -29,7 +32,7 @@ function asError(error: unknown): Error {
   return new Error(typeof error === "string" ? error : JSON.stringify(error));
 }
 
-/** Store backed by the Rust commands kb_list / kb_read / kb_write / kb_root. */
+/** Store backed by the Rust commands kb_list / kb_read / kb_write / kb_create / kb_root. */
 export function createTauriStore(invoke: Invoke = tauriInvoke): TauriStore {
   const call = async <T>(command: string, args?: Record<string, unknown>) => {
     try {
@@ -52,6 +55,14 @@ export function createTauriStore(invoke: Invoke = tauriInvoke): TauriStore {
     },
     async write(path: string, content: string, message: string): Promise<void> {
       await call<KbWriteOutcome>("kb_write", { path, content, message });
+    },
+    async create(path: string, content: string, message: string): Promise<void> {
+      try {
+        await call<KbWriteOutcome>("kb_create", { path, content, message });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith(EXISTS_PREFIX)) throw new KbFileExistsError(path);
+        throw error;
+      }
     },
     root(): Promise<KbRootInfo> {
       return call<KbRootInfo>("kb_root");

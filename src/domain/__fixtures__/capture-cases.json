@@ -1,0 +1,66 @@
+{
+  "comment": "Shared by src/domain/capture.test.ts and src-tauri/src/kb/capture.rs: both implementations must turn each `accept` input into exactly this file, and refuse every `reject` text. All content is invented.",
+  "accept": [
+    {
+      "name": "one line of Chinese from the Mac",
+      "text": "清单越短，越容易做完。",
+      "source": "mac",
+      "at": { "year": 2026, "month": 10, "day": 12, "hour": 14, "minute": 3, "second": 22, "offsetMinutes": 480 },
+      "path": "inbox/2026-10-12T14-03-22-mac.md",
+      "content": "---\n来源: mac\n时间: 2026-10-12T14:03:22+08:00\n---\n\n清单越短，越容易做完。\n",
+      "message": "收件箱：记一笔（mac）"
+    },
+    {
+      "name": "CRLF becomes LF, the ending becomes one newline, everything else stays",
+      "text": "\r\n  第一行前面有空行和空格\r\n\r\n\r\n第二段\t带制表符   \r\n最后一行后面有空格  \r\n\r\n\r\n",
+      "source": "iphone",
+      "at": { "year": 2026, "month": 1, "day": 2, "hour": 3, "minute": 4, "second": 5, "offsetMinutes": -210 },
+      "path": "inbox/2026-01-02T03-04-05-iphone.md",
+      "content": "---\n来源: iphone\n时间: 2026-01-02T03:04:05-03:30\n---\n\n\n  第一行前面有空行和空格\n\n\n第二段\t带制表符   \n最后一行后面有空格  \n",
+      "message": "收件箱：记一笔（iphone）"
+    },
+    {
+      "name": "text that looks like frontmatter or Markdown is kept verbatim",
+      "text": "---\n来源: 假的\n---\n# 标题\n- [ ] 待办 [[双链]] `code` <b>html</b>\n> 引用 \\ 反斜杠 \"引号\" 'x'",
+      "source": "web",
+      "at": { "year": 2026, "month": 12, "day": 31, "hour": 23, "minute": 59, "second": 59, "offsetMinutes": 0 },
+      "path": "inbox/2026-12-31T23-59-59-web.md",
+      "content": "---\n来源: web\n时间: 2026-12-31T23:59:59+00:00\n---\n\n---\n来源: 假的\n---\n# 标题\n- [ ] 待办 [[双链]] `code` <b>html</b>\n> 引用 \\ 反斜杠 \"引号\" 'x'\n",
+      "message": "收件箱：记一笔（web）"
+    },
+    {
+      "name": "a lone carriage return and inner whitespace are not touched",
+      "text": "甲\r乙　全角空格　丙  \n\n\n丁",
+      "source": "mac",
+      "at": { "year": 2026, "month": 2, "day": 28, "hour": 0, "minute": 0, "second": 0, "offsetMinutes": 345 },
+      "path": "inbox/2026-02-28T00-00-00-mac.md",
+      "content": "---\n来源: mac\n时间: 2026-02-28T00:00:00+05:45\n---\n\n甲\r乙　全角空格　丙  \n\n\n丁\n",
+      "message": "收件箱：记一笔（mac）"
+    },
+    {
+      "name": "emoji, mixed scripts and a trailing line of spaces",
+      "text": "idea 💡：ship 小步快跑 ①②③\n   ",
+      "source": "mac",
+      "at": { "year": 2026, "month": 7, "day": 4, "hour": 9, "minute": 30, "second": 7, "offsetMinutes": -480 },
+      "path": "inbox/2026-07-04T09-30-07-mac.md",
+      "content": "---\n来源: mac\n时间: 2026-07-04T09:30:07-08:00\n---\n\nidea 💡：ship 小步快跑 ①②③\n   \n",
+      "message": "收件箱：记一笔（mac）"
+    },
+    {
+      "name": "one character",
+      "text": "嗯",
+      "source": "web",
+      "at": { "year": 2027, "month": 3, "day": 9, "hour": 12, "minute": 0, "second": 1, "offsetMinutes": 60 },
+      "path": "inbox/2027-03-09T12-00-01-web.md",
+      "content": "---\n来源: web\n时间: 2027-03-09T12:00:01+01:00\n---\n\n嗯\n",
+      "message": "收件箱：记一笔（web）"
+    }
+  ],
+  "reject": ["", " ", "   \t  ", "\n", "\r\n\r\n", " \n\t\r\n ", "\u3000", "\u00a0\ufeff", "\u2028\u2029", "\u000b\u000c"],
+  "suffixes": [
+    { "path": "inbox/2026-10-12T14-03-22-mac.md", "attempt": 1, "expected": "inbox/2026-10-12T14-03-22-mac.md" },
+    { "path": "inbox/2026-10-12T14-03-22-mac.md", "attempt": 2, "expected": "inbox/2026-10-12T14-03-22-mac-2.md" },
+    { "path": "inbox/2026-10-12T14-03-22-mac.md", "attempt": 3, "expected": "inbox/2026-10-12T14-03-22-mac-3.md" },
+    { "path": "inbox/2026-10-12T14-03-22-web.md", "attempt": 12, "expected": "inbox/2026-10-12T14-03-22-web-12.md" }
+  ]
+}

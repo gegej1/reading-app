@@ -48,5 +48,6 @@ describe("createDevStore", () => {
   it("refuses to write", async () => {
     const store = createDevStore({ base: "/", fetch: fakeFetch({}).fetch });
     await expect(store.write("self/底色.md", "x", "m")).rejects.toThrow(DEV_READ_ONLY_MESSAGE);
+    await expect(store.create("inbox/a.md", "x", "m")).rejects.toThrow(DEV_READ_ONLY_MESSAGE);
   });
 });
