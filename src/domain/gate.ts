@@ -72,7 +72,9 @@ export type GateRule =
   | "engineCommits"
   | "engine"
   | "untracked"
-  | "finalLine";
+  | "finalLine"
+  /** The gate itself could not finish (reported by its host, never by `runGate`). */
+  | "gate";
 
 /** One problem, in plain Chinese, naming the file when there is one. */
 export interface GateIssue {
