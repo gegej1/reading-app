@@ -311,6 +311,7 @@
   }
 
   .spine__foot {
+    flex-direction: row;
     margin: 0;
   }
 
@@ -324,5 +325,192 @@
 
   .toast {
     left: 50%;
+  }
+}
+
+/* ---------- Sync indicator (desktop) ---------- */
+
+.sync {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.sync__button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 6px 9px;
+  font: inherit;
+  color: var(--spine-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background-color 0.2s;
+}
+
+.sync__button:hover:not(:disabled),
+.sync__button:focus-visible {
+  color: var(--spine-ink);
+  border-color: color-mix(in srgb, var(--spine-faint) 30%, transparent);
+}
+
+.sync__button:disabled {
+  cursor: progress;
+}
+
+/* The mark: a small circle whose look follows the state. */
+.sync__mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--spine-faint) 70%, transparent);
+}
+
+/* The spine is dark in both schemes: lighten jade and ochre a little there. */
+.sync.is-ok .sync__mark {
+  background: color-mix(in srgb, var(--jade) 65%, var(--spine-ink));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--jade) 30%, transparent);
+}
+
+.sync.is-pending .sync__mark {
+  background: color-mix(in srgb, var(--ochre) 75%, var(--spine-ink));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ochre) 30%, transparent);
+}
+
+.sync.is-offline .sync__mark {
+  background: transparent;
+  border: 1.5px solid var(--spine-faint);
+}
+
+.sync.is-attention .sync__mark {
+  background: var(--seal);
+  animation: sync-pulse 1.8s ease-out infinite;
+}
+
+.sync.is-attention .sync__label {
+  color: color-mix(in srgb, var(--seal) 70%, var(--spine-ink));
+}
+
+.sync.is-running .sync__mark {
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--spine-faint) 40%, transparent);
+  border-top-color: var(--spine-ink);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes sync-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--seal) 55%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+.sync__count {
+  font: 600 11.5px/1 var(--font-num);
+  letter-spacing: 0.02em;
+  color: var(--spine-ink);
+}
+
+.sync__label {
+  writing-mode: vertical-rl;
+  font-size: 11.5px;
+  line-height: 1;
+  letter-spacing: 0.24em;
+  /* One column, however the button is sized. */
+  white-space: nowrap;
+}
+
+/* The card opens to the right of the spine, over the desk. */
+.sync__card {
+  position: absolute;
+  left: calc(100% + 16px);
+  bottom: -6px;
+  z-index: 35;
+  width: 280px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  text-align: left;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 8px;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition:
+    opacity 0.16s,
+    transform 0.16s;
+}
+
+.sync:hover .sync__card,
+.sync:focus-within .sync__card {
+  opacity: 1;
+  transform: none;
+}
+
+.sync__card-title {
+  font: 600 13.5px/1.5 var(--font-serif);
+  letter-spacing: 0.04em;
+}
+
+.sync.is-attention .sync__card-title {
+  color: var(--seal);
+}
+
+.sync__card-text {
+  margin-top: 6px;
+  color: var(--ink-soft);
+}
+
+.sync__paths {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sync__paths li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.sync__paths code {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.sync__card-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 640px) {
+  .sync__button {
+    flex-direction: row;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .sync__label {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0.08em;
+  }
+
+  .sync__card {
+    left: auto;
+    right: 0;
+    bottom: calc(100% + 10px);
+    transform: translateY(4px);
   }
 }

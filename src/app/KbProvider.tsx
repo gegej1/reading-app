@@ -3,7 +3,7 @@ import { loadKb, type KbModel } from "../domain";
 import { canWrite, createStore, storeLabel } from "../store/selectStore";
 import type { KbStore } from "../store/types";
 import { KbContext, type KbContextValue } from "./KbContext";
-import { desktop, kbLoadSummary } from "./desktop";
+import { desktop, kbLoadSummary, type Desktop } from "./desktop";
 import { createKbEditor } from "./editFile";
 import { makeLinkResolver } from "./links";
 
@@ -13,6 +13,28 @@ type LoadState =
   | { status: "ready"; store: KbStore; model: KbModel };
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** Label of the window this provider runs in on the desktop. */
+const MAIN_WINDOW = "main";
+
+/** Payload of the backend's `kb-changed` event (src-tauri/src/events.rs). */
+export interface KbChanged {
+  reason: "write" | "create" | "capture" | "sync";
+  path: string | null;
+  /** The window that made the change, if a window did. */
+  window: string | null;
+}
+
+/** The tray menu shows how many captures and pending rulings there are (desktop only). */
+function reportCounts(bridge: Desktop, store: KbStore, model: KbModel) {
+  if (!bridge.active || store.kind !== "tauri") return;
+  bridge
+    .call("tray_set_counts", {
+      inbox: model.dashboard.inboxCaptures,
+      rulings: model.dashboard.pendingRulings.total,
+    })
+    .catch((error: unknown) => bridge.log("warn", `tray_set_counts failed: ${errorText(error)}`));
+}
 
 /** KB folder of stores that know it (the desktop app); null otherwise. */
 async function rootPath(store: KbStore): Promise<string | null> {
@@ -57,6 +79,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
         if (!cancelled && seq === loadSeq.current) {
           setState({ status: "ready", store, model });
           desktop.log("info", kbLoadSummary("kb loaded", model, store));
+          reportCounts(desktop, store, model);
         }
       } catch (error) {
         if (!cancelled && seq === loadSeq.current) {
@@ -90,6 +113,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
       if (seq === loadSeq.current) {
         setState({ status: "ready", store, model });
         desktop.log("info", kbLoadSummary("kb reloaded", model, store));
+        reportCounts(desktop, store, model);
       }
     } catch (error) {
       if (seq === loadSeq.current) {
@@ -105,6 +129,16 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
   useEffect(() => {
     reloadRef.current = reload;
   }, [reload]);
+
+  // Changes made elsewhere (the capture window, the command line, a sync
+  // that pulled) reload the model. This window's own edits reload already.
+  const watching = store?.kind === "tauri";
+  useEffect(() => {
+    if (!watching) return;
+    return desktop.listen<KbChanged>("kb-changed", (change) => {
+      if (change.window !== MAIN_WINDOW) void reloadRef.current();
+    });
+  }, [watching]);
 
   // One editor (and so one queue) per store: edits never interleave, and the
   // model is reloaded after each attempt so the screen shows what is on disk.

@@ -1,7 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useKb } from "./KbContext";
+import { desktop } from "./desktop";
 import { findPage, NAV_ITEMS, navSectionForGroup, pathFromPageRoute, type NavSection } from "./links";
+import { SyncIndicator } from "./SyncIndicator";
 import { cx } from "../ui/components";
 
 /** Which nav item is active for the current route. */
@@ -22,7 +24,9 @@ function useActiveSection(): NavSection {
 
 /** App frame: the book-spine navigation on the left, the desk on the right. */
 export function Shell({ children }: { children: ReactNode }) {
-  const { model, reload, reloading, notice, sourceLabel, sourceDetail, writable } = useKb();
+  const { model, reload, reloading, notice, sourceLabel, sourceDetail, writable, store } = useKb();
+  // Syncing only exists for the knowledge base on this Mac.
+  const syncs = desktop.active && store.kind === "tauri";
   const active = useActiveSection();
   const location = useLocation();
   const desk = useRef<HTMLElement>(null);
@@ -61,6 +65,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ))}
         </ul>
         <div className="spine__foot">
+          {syncs ? <SyncIndicator /> : null}
           <button
             type="button"
             className={cx("spine__reload", reloading && "is-spinning")}
