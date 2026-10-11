@@ -41,8 +41,8 @@ use crate::sync_service::SyncService;
 const RUNS_DIR: &str = "runs";
 
 /// The run service of the app: its files live in the app's data folder, its
-/// temporary auth file in a private folder below the user's temp folder, and
-/// what it has to say goes to the windows as events.
+/// temporary auth file in a private folder of its own below the user's temp
+/// folder, and what it has to say goes to the windows as events.
 pub fn service<R: Runtime>(app: &AppHandle<R>) -> Result<RunService, String> {
     let data = app
         .path()
@@ -50,7 +50,10 @@ pub fn service<R: Runtime>(app: &AppHandle<R>) -> Result<RunService, String> {
         .map_err(|error| format!("找不到 App 的数据文件夹：{error}"))?;
     let dirs = RunDirs {
         runs: data.join(RUNS_DIR),
-        temp: std::env::temp_dir().join(&app.config().identifier),
+        // The app's temp folder is shared with the webview's caches.
+        temp: std::env::temp_dir()
+            .join(&app.config().identifier)
+            .join("auth"),
     };
     let for_root = app.clone();
     let for_settings = app.clone();
