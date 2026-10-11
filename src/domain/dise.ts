@@ -227,6 +227,48 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** The exact source text of one entry, as {@link diseEntryTexts} returns it. */
+export interface DiseEntryText {
+  id: string;
+  confirmed: boolean;
+  /**
+   * From the heading line up to the next entry or section heading, byte for
+   * byte (CR and trailing spaces kept), without the blank lines at its end.
+   */
+  text: string;
+}
+
+/**
+ * The source text of every entry of `self/底色.md`, in document order. Used to
+ * prove that confirmed (✅) entries were not touched: blank lines between
+ * entries are not part of an entry, so adding an entry after a confirmed one
+ * leaves its text identical. Entry boundaries are the ones {@link parseDise}
+ * uses; headings in fenced code and the frontmatter are not boundaries.
+ */
+export function diseEntryTexts(markdown: string): DiseEntryText[] {
+  const lines = splitLines(markdown);
+  const offset = lineCount(splitFrontmatter(markdown).block);
+  const mask = fencedCodeMask(lines.slice(offset));
+  const entries = parseDise(markdown).entries;
+  const starts = new Set(entries.map((entry) => entry.line));
+
+  return entries.map((entry) => {
+    let end = entry.line + 1;
+    while (end < lines.length) {
+      if (starts.has(end)) break;
+      const heading = mask[end - offset] ? null : parseHeading(lines[end] ?? "");
+      if (heading && heading.level <= 2) break;
+      end += 1;
+    }
+    while (end > entry.line + 1 && (lines[end - 1] ?? "").trim() === "") end -= 1;
+    return {
+      id: entry.id,
+      confirmed: entry.confirmed,
+      text: lines.slice(entry.line, end).join("\n"),
+    };
+  });
+}
+
 /** Picks one item per local calendar day; consecutive days walk through the list. */
 export function pickDailyEntry<T>(items: readonly T[], date: Date): T | null {
   if (items.length === 0) return null;

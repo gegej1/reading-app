@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDise, pickDailyEntry, setConfirmed } from "./dise";
+import { diseEntryTexts, parseDise, pickDailyEntry, setConfirmed } from "./dise";
 import { fixture } from "./__fixtures__";
 
 const md = fixture("self/底色.md");
@@ -173,6 +173,54 @@ describe("setConfirmed", () => {
   it("throws when the entry does not exist, whatever the desired state", () => {
     expect(() => setConfirmed(md, "D42", true)).toThrow(/D42/);
     expect(() => setConfirmed(md, "D42", false)).toThrow(/D42/);
+  });
+});
+
+describe("diseEntryTexts", () => {
+  it("returns every entry's exact source text, heading included", () => {
+    const texts = diseEntryTexts(md);
+    expect(texts.map((t) => [t.id, t.confirmed])).toEqual([
+      ["D01", true],
+      ["D02", false],
+      ["D03", false],
+      ["D04", false],
+      ["D05", true],
+      ["D06", false],
+    ]);
+    expect(texts[0]?.text).toBe(
+      [
+        "### D01 先留退路，再加速度 ✅",
+        "> 先确认能退回来，再决定跑多快。退路想清楚了，速度才敢放开。",
+        "",
+        "- 可以撤回的决定，先用小实验试一试。",
+        "- 撤不回来的决定，多等一周也值得。",
+        "- 判例：[[P-001-速度与退路]]",
+      ].join("\n"),
+    );
+  });
+
+  it("ends an entry at the next section heading and keeps code blocks inside it", () => {
+    const texts = diseEntryTexts(md);
+    // D02 is the last entry of section 一: it stops before `## 二、…`.
+    expect(texts[1]?.text.endsWith("- 来源：示例笔记 S1.2")).toBe(true);
+    // The fenced `### D99` belongs to D06, it is not an entry of its own.
+    expect(texts[5]?.text).toContain("### D99 代码块里的标题不是条目");
+  });
+
+  it("ignores blank lines between entries, so appending an entry changes no other text", () => {
+    const before = "## 一、甲\n\n### D01 甲 ✅\n> 原话\n";
+    const after = `${before}\n### D02 新的（草稿，待你确认）\n> 新原话\n`;
+    expect(diseEntryTexts(after)[0]).toEqual(diseEntryTexts(before)[0]);
+    expect(diseEntryTexts(before)[0]?.text).toBe("### D01 甲 ✅\n> 原话");
+  });
+
+  it("keeps the text byte-exact: CR and trailing spaces stay", () => {
+    const text = "### D01 甲 ✅  \r\n> 原话\r\n\r\n";
+    expect(diseEntryTexts(text)[0]?.text).toBe("### D01 甲 ✅  \r\n> 原话\r");
+  });
+
+  it("skips the frontmatter and returns nothing for a file without entries", () => {
+    expect(diseEntryTexts("---\n类型: 底色\n---\n# 底色\n")).toEqual([]);
   });
 });
 
