@@ -13,13 +13,14 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::process_group;
 use crate::shell_env::ChildEnv;
 
 /// Time limit for git commands that only work on the local repository.
@@ -65,6 +66,23 @@ fn spawn_error(error: std::io::Error) -> String {
     format!("无法运行 git（{error}）。请确认已安装 Git（macOS 上可运行 xcode-select --install）")
 }
 
+/// A `git` invocation for the app's own reading of git's output: messages in
+/// English (a few have to be recognised), file names as they are instead of
+/// octal escapes, and nothing that could open an editor or ask for a password.
+pub(crate) fn plumbing(root: &Path, env: &ChildEnv) -> Command {
+    let mut command = command(root, env);
+    command
+        .env("LC_ALL", "C")
+        .env("GIT_EDITOR", "true")
+        .env("GIT_SEQUENCE_EDITOR", "true")
+        .env("GIT_MERGE_AUTOEDIT", "no")
+        // An empty value turns the askpass helper off; credential helpers
+        // (the macOS keychain) still work.
+        .env("GIT_ASKPASS", "")
+        .args(["-c", "core.quotePath=false"]);
+    command
+}
+
 /// What one finished git command left behind.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Finished {
@@ -92,12 +110,38 @@ impl Finished {
     }
 }
 
+/// [`Finished`] with the output as the bytes git wrote (file contents).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FinishedBytes {
+    pub code: Option<i32>,
+    pub timed_out: bool,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
 /// Runs `command` until it exits, or stops it when `timeout` has passed.
 ///
 /// The command gets its own process group, so the helpers git starts for a
 /// transfer (`git-remote-https`, `ssh`) are stopped with it: first SIGTERM,
 /// which lets git remove its lock files, then SIGKILL.
-pub(crate) fn finish(mut command: Command, timeout: Duration) -> Result<Finished, String> {
+pub(crate) fn finish(command: Command, timeout: Duration) -> Result<Finished, String> {
+    let done = finish_bytes(command, timeout, MAX_OUTPUT)?;
+    Ok(Finished {
+        code: done.code,
+        timed_out: done.timed_out,
+        stdout: String::from_utf8_lossy(&done.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&done.stderr).into_owned(),
+    })
+}
+
+/// [`finish`] without decoding the output. Each stream is cut off once it
+/// holds `max_output` bytes or more, so a caller that must notice an output
+/// that is too large passes its limit plus one.
+pub(crate) fn finish_bytes(
+    mut command: Command,
+    timeout: Duration,
+    max_output: usize,
+) -> Result<FinishedBytes, String> {
     command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -112,7 +156,7 @@ pub(crate) fn finish(mut command: Command, timeout: Duration) -> Result<Finished
     let mut stderr = Vec::new();
     let mut keep = |(is_stderr, chunk): (bool, Vec<u8>)| {
         let buffer = if is_stderr { &mut stderr } else { &mut stdout };
-        if buffer.len() < MAX_OUTPUT {
+        if buffer.len() < max_output {
             buffer.extend_from_slice(&chunk);
         }
     };
@@ -134,7 +178,7 @@ pub(crate) fn finish(mut command: Command, timeout: Duration) -> Result<Finished
         }
         if Instant::now() >= deadline {
             timed_out = true;
-            break terminate_group(&mut child);
+            break process_group::stop(&mut child, TERMINATE_GRACE);
         }
     };
 
@@ -148,11 +192,11 @@ pub(crate) fn finish(mut command: Command, timeout: Duration) -> Result<Finished
         }
     }
 
-    Ok(Finished {
+    Ok(FinishedBytes {
         code: status.and_then(|status| status.code()),
         timed_out,
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        stdout,
+        stderr,
     })
 }
 
@@ -178,35 +222,6 @@ fn forward<P: Read + Send + 'static>(
                 }
             }
         });
-}
-
-/// Stops the child's whole process group and reaps the child.
-fn terminate_group(child: &mut Child) -> Option<std::process::ExitStatus> {
-    let group = libc::pid_t::try_from(child.id()).ok();
-    let signal_group = |signal: libc::c_int| {
-        if let Some(pid) = group {
-            // SAFETY: plain kill(2) on the process group created for this child.
-            unsafe {
-                libc::kill(-pid, signal);
-            }
-        }
-    };
-    signal_group(libc::SIGTERM);
-    let until = Instant::now() + TERMINATE_GRACE;
-    while Instant::now() < until {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                // Helpers that ignored SIGTERM must not outlive the command.
-                signal_group(libc::SIGKILL);
-                return Some(status);
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => break,
-        }
-    }
-    signal_group(libc::SIGKILL);
-    let _ = child.kill();
-    child.wait().ok()
 }
 
 /// Runs git with `args` and returns trimmed stdout, or a readable error.

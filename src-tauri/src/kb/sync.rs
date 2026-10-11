@@ -287,18 +287,8 @@ impl Repo<'_> {
     /// English, because a few of them have to be recognised; nothing may open
     /// an editor or ask for a password in a dialog.
     fn run(&self, args: &[&str], timeout: Duration) -> Result<Finished, String> {
-        let mut command = git::command(self.root, self.env);
-        command
-            .env("LC_ALL", "C")
-            .env("GIT_EDITOR", "true")
-            .env("GIT_SEQUENCE_EDITOR", "true")
-            .env("GIT_MERGE_AUTOEDIT", "no")
-            // An empty value turns the askpass helper off; credential helpers
-            // (the macOS keychain) still work.
-            .env("GIT_ASKPASS", "")
-            // File names as they are, not as octal escapes.
-            .args(["-c", "core.quotePath=false"])
-            .args(args);
+        let mut command = git::plumbing(self.root, self.env);
+        command.args(args);
         git::finish(command, timeout)
     }
 

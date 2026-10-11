@@ -15,6 +15,7 @@
 //! - `cli`: `--capture "<text>"` and `--sync`, also handed to a running
 //!   instance by the single-instance plugin;
 //! - `events`: `kb-changed` and `sync-status` for the windows;
+//! - `process_group`: stopping a child process together with what it started;
 //! - `logging`: stdout plus a rotated file in `~/Library/Logs/com.gegej1.dise/`;
 //! - `window`: closing the window hides it, the Dock icon shows it, ⌘Q quits;
 //! - opener: http(s) links open in the default browser.
@@ -26,6 +27,7 @@ mod desktop;
 mod events;
 mod kb;
 mod logging;
+mod process_group;
 pub mod shell_env;
 mod shortcut;
 mod sync_service;
