@@ -660,6 +660,7 @@ impl RunService {
 
         let queue: Vec<String> = snapshot.queue.iter().map(|file| file.path.clone()).collect();
         let saved = SavedSnapshot {
+            root: root.clone(),
             snapshot: snapshot.clone(),
             beside: Vec::new(),
         };
@@ -867,6 +868,7 @@ impl RunService {
             }
         };
         let saved = SavedSnapshot {
+            root: context.root.clone(),
             snapshot: context.snapshot.clone(),
             beside,
         };
@@ -1137,16 +1139,26 @@ impl RunService {
 
     /// Ends the run: writes its record, releases the job, tells the app.
     fn finish(&self, id: &str, outcome: Outcome, message: String, commit: Option<String>) {
-        let ended = {
-            let mut state = self.state();
-            let Some(mut active) = state.active.take_if(|active| active.record.id == id) else {
-                return;
-            };
+        // The record goes to disk first: whoever sees the run as over and
+        // looks at the history finds it there.
+        let Some((folder, final_record)) = self.with_active(id, |active| {
             active.record.phase = Phase::Finished;
             active.record.outcome = Some(outcome);
             active.record.message = Some(message.clone());
             active.record.ended_at = Some(record::unix_millis());
             active.record.commit = commit;
+            (active.folder.clone(), active.record.clone())
+        }) else {
+            return;
+        };
+        if let Err(error) = record::save(&folder, &final_record) {
+            log::warn!("run {id}: could not write run.json: {error}");
+        }
+        let ended = {
+            let mut state = self.state();
+            let Some(mut active) = state.active.take_if(|active| active.record.id == id) else {
+                return;
+            };
             state.last = Some(active.record.clone());
             state.last_steps = active.steps.iter().cloned().collect();
             // Ends the job before anyone can see the run as over: whoever
@@ -1155,9 +1167,6 @@ impl RunService {
             active
         };
         self.0.changed.notify_all();
-        if let Err(error) = record::save(&ended.folder, &ended.record) {
-            log::warn!("run {id}: could not write run.json: {error}");
-        }
         let record = &ended.record;
         let engine = record.engine_report.as_ref();
         let line = format!(
@@ -1381,6 +1390,12 @@ impl RunService {
                 return;
             }
         };
+        if saved.root != root {
+            // Its changes are in another folder: it waits until the app
+            // works on that folder again, and is not in the way meanwhile.
+            log::warn!("run {id}: belongs to another knowledge-base folder, left alone");
+            return;
+        }
         let Ok(job) = self.0.lock.start_job(
             &format!("等你处理{}的结果", record.task.label()),
             self.0.timing.lock_wait,
@@ -1420,7 +1435,7 @@ impl RunService {
         let spawned = thread::Builder::new()
             .name("run-check".into())
             .spawn(move || {
-                if was_committing && service.was_committed(&id) {
+                if service.base_is_gone(&id) || (was_committing && service.was_committed(&id)) {
                     return;
                 }
                 service.check(&id);
@@ -1428,6 +1443,28 @@ impl RunService {
         if let Err(error) = spawned {
             log::error!("run: could not start the check of the restored run: {error}");
         }
+    }
+
+    /// True (and the run is finished) when the commit the run started from is
+    /// not in the repository any more (history was rewritten by hand): then
+    /// nothing about the run can be worked out, and it must not block the
+    /// knowledge base forever.
+    fn base_is_gone(&self, id: &str) -> bool {
+        let Some(context) = self.context(id) else {
+            return false;
+        };
+        let object = format!("{}^{{commit}}", context.snapshot.base);
+        let present = changes::read_commit(&context.root, self.env(), &object);
+        if present {
+            return false;
+        }
+        self.finish(
+            id,
+            Outcome::Failed,
+            "运行开始时的提交已经不在知识库里了，没法核对这次运行留下的改动。请在知识库文件夹里手动检查还没提交的文件".to_string(),
+            None,
+        );
+        true
     }
 
     /// True (and the run is finished) when the app went away right after it

@@ -1414,6 +1414,77 @@ fn a_run_that_waited_for_a_decision_is_picked_up_again_after_a_restart() {
     assert_eq!(restarted.status().phase, Phase::Idle);
 }
 
+/// A second service on the same app folders, as after a restart, working on `kb`.
+fn restarted(world: &World, kb: PathBuf, lock: &KbLock) -> RunService {
+    RunService::new(
+        lock.clone(),
+        world.env.clone(),
+        RunDirs {
+            runs: world.dir.path().join("data/runs"),
+            temp: world.dir.path().join("tmp/dise"),
+        },
+        RunTiming {
+            gate_wait: Duration::from_millis(200),
+            stop_grace: Duration::from_millis(300),
+            lock_wait: Duration::from_secs(10),
+        },
+        Hooks {
+            root: Box::new(move || Ok(kb.clone())),
+            settings: Box::new(|| (RunSettings::default(), Vec::new())),
+            sync: Box::new(|| SyncReport::stopped(SyncState::Synced, None)),
+            notify: Box::new(|_| {}),
+        },
+    )
+}
+
+#[test]
+fn a_run_of_another_knowledge_base_folder_is_left_alone() {
+    let world = World::new("run-restore-other");
+    world.claude(&format!("{HALF_INGEST}{RESULT}"));
+    let id = world.start(Task::Ingest);
+    world.undecided(&id);
+
+    // The app now works on another folder (kbPath changed, or another test
+    // folder): the waiting run must not take that one over.
+    let other = TempDir::new("run-restore-other-kb");
+    init_repo(other.path());
+    let lock = KbLock::default();
+    let service = restarted(&world, other.path().to_path_buf(), &lock);
+    service.restore();
+    assert_eq!(service.status().phase, Phase::Idle);
+    assert!(lock.try_acquire("同步").is_ok(), "nothing blocks the other folder");
+    // The run is still waiting for its own folder.
+    let (_, record) = record::unfinished(&world.dir.path().join("data/runs")).unwrap();
+    assert_eq!(record.id, id);
+}
+
+#[test]
+fn a_run_whose_start_commit_is_gone_is_given_up_instead_of_blocking() {
+    let world = World::new("run-restore-gone");
+    world.claude(&format!("{HALF_INGEST}{RESULT}"));
+    let id = world.start(Task::Ingest);
+    world.undecided(&id);
+    // Somebody rewrote the history by hand meanwhile.
+    let folder = world.dir.path().join("data/runs").join(&id);
+    let mut saved = record::load_snapshot(&folder).unwrap();
+    saved.snapshot.base = "0123456789abcdef0123456789abcdef01234567".into();
+    record::save_snapshot(&folder, &saved).unwrap();
+
+    let lock = KbLock::default();
+    let service = restarted(&world, world.kb.clone(), &lock);
+    service.restore();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while service.status().phase != Phase::Idle {
+        assert!(Instant::now() < deadline, "{:#?}", service.status());
+        thread::sleep(Duration::from_millis(10));
+    }
+    let record = service.status().run.unwrap();
+    assert_eq!(record.outcome, Some(Outcome::Failed));
+    assert!(record.message.unwrap().contains("运行开始时的提交已经不在"));
+    assert!(lock.try_acquire("同步").is_ok());
+    assert!(record::unfinished(&world.dir.path().join("data/runs")).is_none());
+}
+
 #[test]
 fn quitting_stops_the_engine_and_the_next_start_finds_the_run() {
     let world = World::new("run-quit");

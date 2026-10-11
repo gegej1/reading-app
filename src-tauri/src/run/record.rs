@@ -215,6 +215,10 @@ pub fn load(folder: &Path) -> Option<RunRecord> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedSnapshot {
+    /// The knowledge-base folder the run works on (canonical). The run
+    /// folders belong to the app, not to one knowledge base: a run is only
+    /// ever picked up again in the folder it started in.
+    pub root: PathBuf,
     pub snapshot: Snapshot,
     pub beside: Vec<NotedCommit>,
 }
@@ -459,6 +463,7 @@ mod tests {
     fn snapshots_round_trip() {
         let dir = TempDir::new("record-snapshot");
         let saved = SavedSnapshot {
+            root: PathBuf::from("/tmp/kb"),
             snapshot: Snapshot {
                 base: "abc".into(),
                 branch: "main".into(),

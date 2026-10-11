@@ -488,6 +488,12 @@ pub fn snapshot(root: &Path, env: &ChildEnv, queue_dir: &str) -> Result<Snapshot
     })
 }
 
+/// True when `object` (e.g. `<hash>^{commit}`) names a commit of the
+/// repository at `root`.
+pub fn read_commit(root: &Path, env: &ChildEnv, object: &str) -> bool {
+    Git { root, env }.succeeds(&["cat-file", "-e", object])
+}
+
 /// The content of `rel` as of `commit`, or `None` when it did not exist then.
 pub fn read_at(
     root: &Path,
