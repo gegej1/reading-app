@@ -117,6 +117,65 @@ describe("error forwarding", () => {
   });
 });
 
+describe("desktop commands and events", () => {
+  it("call commands on the desktop and reject on the web", async () => {
+    const { invoke, calls } = fakeInvoke({ kb_sync: "知识库正忙" });
+    const desktop = createDesktop({ active: true, invoke });
+    await expect(desktop.call("capture_show")).resolves.toBeNull();
+    await expect(desktop.call("kb_sync")).rejects.toThrow("知识库正忙");
+    expect(calls.map(([command]) => command)).toEqual(["capture_show", "kb_sync"]);
+
+    const web = createDesktop({ active: false, invoke });
+    await expect(web.call("capture_show")).rejects.toThrow("桌面 App");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("turn string errors from Rust into Error objects", async () => {
+    const invoke = async () => {
+      throw "文件已存在：inbox/a.md";
+    };
+    const desktop = createDesktop({ active: true, invoke });
+    await expect(desktop.call("kb_create")).rejects.toBeInstanceOf(Error);
+  });
+
+  it("hear events until unsubscribed, also when that happens before the subscription is set up", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const unlistened: string[] = [];
+    const listen = async (event: string, handler: (payload: unknown) => void) => {
+      handlers.set(event, handler);
+      return () => unlistened.push(event);
+    };
+    const desktop = createDesktop({ active: true, invoke: fakeInvoke().invoke, listen });
+    const heard: unknown[] = [];
+    const stop = desktop.listen("sync-status", (payload) => heard.push(payload));
+    await flush();
+    handlers.get("sync-status")?.({ running: true });
+    stop();
+    handlers.get("sync-status")?.({ running: false });
+    expect(heard).toEqual([{ running: true }]);
+    expect(unlistened).toEqual(["sync-status"]);
+
+    // Unsubscribed right away: the subscription is undone once it exists.
+    const early = desktop.listen("kb-changed", () => heard.push("never"));
+    early();
+    await flush();
+    handlers.get("kb-changed")?.({ reason: "sync" });
+    expect(heard).toHaveLength(1);
+    expect(unlistened).toEqual(["sync-status", "kb-changed"]);
+  });
+
+  it("never subscribe on the web", () => {
+    let subscribed = false;
+    const listen = async () => {
+      subscribed = true;
+      return () => undefined;
+    };
+    const web = createDesktop({ active: false, invoke: fakeInvoke().invoke, listen });
+    web.listen("sync-status", () => undefined)();
+    expect(subscribed).toBe(false);
+  });
+});
+
 describe("external links", () => {
   it("open in the default browser on the desktop", async () => {
     const { invoke, calls } = fakeInvoke();

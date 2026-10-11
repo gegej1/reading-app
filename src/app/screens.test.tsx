@@ -58,7 +58,7 @@ describe("shell", () => {
 });
 
 describe("今日", () => {
-  it("shows counts, the latest report and disabled future actions", () => {
+  it("shows counts, the latest report, the capture button and disabled future actions", () => {
     const html = renderToStaticMarkup(
       <KbContext.Provider value={contextValue()}>
         <MemoryRouter>
@@ -73,7 +73,9 @@ describe("今日", () => {
     expect(t).toMatch(/待抽查 4 条/);
     expect(t).toContain("入库报告（2026-09-08 第二次）");
     expect(html).toMatch(/data-hint="还没开放[^"]*"[^>]*><button type="button" class="btn btn--seal" disabled="">入库 ▶/);
-    expect(html).toMatch(/data-hint="还没开放[^"]*"[^>]*><button type="button" class="btn btn--quiet" disabled="">✎ 记一笔/);
+    // 记一笔 works everywhere now; without a desktop shortcut it shows no key.
+    expect(html).toMatch(/<button type="button" class="btn btn--quiet today__capture" title="随手记一笔，直接进收件箱">✎ 记一笔<\/button>/);
+    expect(html).not.toContain("today__notice");
     expect(html).toContain('href="/rulings?tab=audit"');
     // 2026-10-12 picks a deterministic entry.
     expect(html).toMatch(/class="letter__id">D0\d</);

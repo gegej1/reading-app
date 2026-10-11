@@ -1,0 +1,4 @@
+/* Stylesheet of the capture window: the shared tokens and buttons, and the slip. */
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/capture.css";

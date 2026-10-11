@@ -1,4 +1,5 @@
 import { HashRouter, Link, Route, Routes } from "react-router";
+import { CaptureProvider } from "./app/capture";
 import { KbProvider } from "./app/KbProvider";
 import { Shell } from "./app/Shell";
 import type { KbStore } from "./store/types";
@@ -42,9 +43,11 @@ export function AppRoutes() {
 export default function App({ store }: { store?: KbStore }) {
   return (
     <KbProvider store={store}>
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
+      <CaptureProvider>
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      </CaptureProvider>
     </KbProvider>
   );
 }

@@ -22,6 +22,33 @@
   color: var(--ink-faint);
 }
 
+.today__capture {
+  gap: 9px;
+}
+
+/* The shortcut, set like a key cap. */
+.today__kbd {
+  padding: 3px 6px 2px;
+  font: 500 11.5px/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+.today__notice {
+  margin: -8px 0 20px;
+  padding: 9px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  background: var(--ochre-wash);
+  border-left: 3px solid var(--ochre);
+  border-radius: 0 4px 4px 0;
+}
+
 /* Account-book ledger: three cells between double rules. */
 .ledger {
   display: grid;

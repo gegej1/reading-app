@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { pickDailyEntry, stripMarkdown, type DiseEntry, type DiseSection } from "../../domain";
+import { useCapture } from "../../app/capture";
 import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, pageRoute } from "../../app/links";
 import { cx, EmptyState, Hint, Numbered, Seal } from "../../ui/components";
@@ -85,6 +86,35 @@ function DailyLetter({ entry, section }: { entry: DiseEntry | null; section: Dis
   );
 }
 
+/** The capture button, with the desktop shortcut next to it when it works. */
+function CaptureButton() {
+  const capture = useCapture();
+  const shortcut = capture.shortcut?.registered ? capture.shortcut.label : null;
+  return (
+    <button
+      type="button"
+      className="btn btn--quiet today__capture"
+      onClick={capture.open}
+      title={shortcut ? `随手记一笔，直接进收件箱（${shortcut}）` : "随手记一笔，直接进收件箱"}
+    >
+      ✎ 记一笔
+      {shortcut ? <kbd className="today__kbd">{shortcut}</kbd> : null}
+    </button>
+  );
+}
+
+/** Says so when the desktop shortcut could not be set up. */
+function ShortcutNotice() {
+  const { shortcut } = useCapture();
+  if (!shortcut || shortcut.registered) return null;
+  const reason = shortcut.error ?? "记一笔的全局快捷键没能设置。";
+  return (
+    <p className="today__notice" role="note">
+      {`${reason}现在可以点右上角的「记一笔」，或者用菜单栏里的底色图标。`}
+    </p>
+  );
+}
+
 export function TodayScreen({ now = new Date() }: { now?: Date }) {
   const { model } = useKb();
   const { dashboard } = model;
@@ -103,12 +133,9 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
             <span className="num">{label.year}</span> · {label.weekday}
           </p>
         </div>
-        <Hint text="还没开放：随手记一笔，直接进收件箱" align="end">
-          <button type="button" className="btn btn--quiet" disabled>
-            ✎ 记一笔
-          </button>
-        </Hint>
+        <CaptureButton />
       </header>
+      <ShortcutNotice />
 
       <section className="ledger" aria-label="待办">
         <LedgerCell

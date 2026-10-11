@@ -1,12 +1,20 @@
-// Desktop-only integrations: writing to the app log and opening links in the
-// default browser. In the web build (and in tests) everything here is a no-op,
-// so callers never have to check where they run.
+// Desktop-only integrations: writing to the app log, opening links in the
+// default browser, calling the desktop commands and hearing the backend's
+// events (`kb-changed`, `sync-status`, `capture-shown`; see
+// src-tauri/src/events.rs). In the web build (and in tests) logging and
+// events are no-ops and commands reject, so callers never crash on the web.
 
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
+import { listen as tauriListen } from "@tauri-apps/api/event";
 
 export type LogLevel = "info" | "warn" | "error";
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+/** Subscribes to a backend event; resolves to the function that unsubscribes. */
+type Listen = (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
+
+const tauriListenPayload: Listen = (event, handler) =>
+  tauriListen(event, (message) => handler(message.payload));
 
 /** tauri-plugin-log's numeric levels. */
 const LEVELS: Record<LogLevel, number> = { info: 3, warn: 4, error: 5 };
@@ -21,6 +29,13 @@ export interface Desktop {
   log(level: LogLevel, message: string): void;
   /** Opens an http(s) URL in the default browser (desktop only). */
   openUrl(url: string): Promise<void>;
+  /** Calls a desktop command. Rejects on the web; errors arrive as Error objects. */
+  call<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  /**
+   * Hears a backend event until the returned function is called. Never fires
+   * on the web.
+   */
+  listen<T>(event: string, handler: (payload: T) => void): () => void;
 }
 
 /** Cuts long messages and keeps them on one line. */
@@ -29,8 +44,9 @@ export function logText(message: string): string {
   return line.length > MAX_MESSAGE ? `${line.slice(0, MAX_MESSAGE)}…` : line;
 }
 
-export function createDesktop(options: { active: boolean; invoke?: Invoke }): Desktop {
+export function createDesktop(options: { active: boolean; invoke?: Invoke; listen?: Listen }): Desktop {
   const call: Invoke = options.invoke ?? ((command, args) => tauriInvoke(command, args));
+  const subscribe: Listen = options.listen ?? tauriListenPayload;
   const active = options.active;
 
   // The plugin commands are called directly (rather than through the plugins'
@@ -55,7 +71,35 @@ export function createDesktop(options: { active: boolean; invoke?: Invoke }): De
     }
   };
 
-  return { active, log, openUrl };
+  const callCommand = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (!active) throw new Error("只有桌面 App 能用这个功能");
+    try {
+      return (await call(command, args)) as T;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(typeof error === "string" ? error : JSON.stringify(error));
+    }
+  };
+
+  const listen = <T>(event: string, handler: (payload: T) => void): (() => void) => {
+    if (!active) return () => undefined;
+    let stopped = false;
+    let stop: (() => void) | null = null;
+    subscribe(event, (payload) => {
+      if (!stopped) handler(payload as T);
+    }).then(
+      (unlisten) => {
+        if (stopped) unlisten();
+        else stop = unlisten;
+      },
+      (error: unknown) => log("warn", `listen ${event} failed: ${error instanceof Error ? error.message : String(error)}`),
+    );
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  };
+
+  return { active, log, openUrl, call: callCommand, listen };
 }
 
 /** The log line after a load, e.g. `kb loaded: files=52 brokenLinks=0 store=tauri`. */
