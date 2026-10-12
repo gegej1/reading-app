@@ -542,12 +542,27 @@ function reportLabel(report: Report): string {
   return `${formatIsoDate(report.date)}${nth}的入库`;
 }
 
-/** The sections of a report that are about rulings (抽查, 裁决); the rest stays on the Mac. */
-export function reportSectionsForPhone(report: Report): { shown: { heading: string; markdown: string }[]; omitted: string[] } {
+/**
+ * The report sections that go to the phone, by their exact `##` heading.
+ * Anything not listed here stays on the Mac, whatever words its heading has.
+ */
+const PHONE_SECTIONS: readonly ((heading: string) => boolean)[] = [
+  (heading) => heading.startsWith("待你抽查"),
+  (heading) => heading === "交给你裁决",
+  (heading) => heading === "给已有待裁决补的材料",
+];
+
+/** True for a report section that goes to the phone. */
+export function isPhoneSection(heading: string): boolean {
+  const trimmed = heading.trim();
+  return PHONE_SECTIONS.some((allowed) => allowed(trimmed));
+}
+
+/** The sections of a report that go to the phone, and whether others stay on the Mac. */
+export function reportSectionsForPhone(report: Report): { shown: { heading: string; markdown: string }[]; hidden: boolean } {
   const { sections } = splitSections(report.body, 2);
-  const shown = sections.filter((s) => /抽查|裁决/.test(s.heading));
-  const omitted = sections.filter((s) => !/抽查|裁决/.test(s.heading)).map((s) => s.heading);
-  return { shown, omitted };
+  const shown = sections.filter((s) => isPhoneSection(s.heading));
+  return { shown, hidden: shown.length < sections.length };
 }
 
 /** The latest ingest report, as far as it is about the 底色 layer. */
@@ -557,7 +572,7 @@ export function renderReport(model: KbModel): string {
   if (!report) {
     return render("report", "最近入库", <p className="empty">还没有入库报告</p>);
   }
-  const { shown, omitted } = reportSectionsForPhone(report);
+  const { shown, hidden } = reportSectionsForPhone(report);
   return render(
     "report",
     "最近入库",
@@ -579,7 +594,7 @@ export function renderReport(model: KbModel): string {
       ) : (
         <p className="empty">这次入库没有要你看的裁决</p>
       )}
-      {omitted.length > 0 ? <p className="small">{omitted.join("、")}只在 Mac 上看。</p> : null}
+      {hidden ? <p className="small">报告的其余部分只在 Mac 上看。</p> : null}
     </>,
   );
 }

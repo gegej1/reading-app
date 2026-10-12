@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { buildKbModel, pickDailyEntry, type KbFile } from "../domain";
 import { fixtureKb } from "../domain/__fixtures__";
 import { buildPhoneExport, exportModel, rulingListText } from "./phoneExport";
+import { isPhoneSection } from "./phonePages";
 import { isExportSource, PAGE_FILES } from "./sources";
 
 const NOW = new Date(2026, 9, 12, 9, 30);
@@ -52,6 +53,22 @@ const LATEST_REPORT: KbFile = {
     "",
     "- [[Q-001-周会要不要取消]]：补了一条材料",
     "",
+    "## 给已有待裁决补的材料",
+    "",
+    "- Q-001：新的一条材料 MATERIAL-shown-4444",
+    "",
+    "## 其他清单（不是抽查项）",
+    "",
+    "- REPORTMARK-decoy-5555",
+    "",
+    "## 已入库（无需裁决）",
+    "",
+    "- REPORTMARK-done-6666",
+    "",
+    "## 交给你裁决的背景",
+    "",
+    "- REPORTMARK-background-7777",
+    "",
     "## 拆条与去向",
     "",
     "| 条目 | 摘要 |",
@@ -77,6 +94,27 @@ function allFiles(): KbFile[] {
 }
 
 const EXPORT_NAME = /^(今日|底色|判例|待裁决|待抽查|最近入库)\.html$|^(今日一条|待裁决列表)\.txt$|^待裁决\/Q-\d+\.txt$/;
+
+describe("the report sections for the phone", () => {
+  it("are an explicit list of headings", () => {
+    for (const heading of ["待你抽查：AI 按判例做的裁决", "待你抽查", "交给你裁决", "给已有待裁决补的材料", " 交给你裁决 "]) {
+      expect(isPhoneSection(heading), heading).toBe(true);
+    }
+    for (const heading of [
+      "其他清单（不是抽查项）",
+      "已入库（无需裁决）",
+      "交给你裁决的背景",
+      "不交给你裁决",
+      "关于抽查",
+      "裁决",
+      "拆条与去向",
+      "观察",
+      "给已有待裁决补的材料（草稿）",
+    ]) {
+      expect(isPhoneSection(heading), heading).toBe(false);
+    }
+  });
+});
 
 describe("the iPhone export", () => {
   const files = allFiles();
@@ -199,7 +237,13 @@ describe("the iPhone export", () => {
     expect(report).toContain("待你抽查");
     expect(report).toContain("I-21");
     expect(report).toContain("交给你裁决");
-    expect(report).toContain("拆条与去向、观察只在 Mac 上看");
+    expect(report).toContain("给已有待裁决补的材料");
+    expect(report).toContain("MATERIAL-shown-4444");
+    expect(report).toContain("报告的其余部分只在 Mac 上看");
+    // Neither the sections that stay on the Mac nor their names.
+    for (const name of ["其他清单", "不是抽查项", "已入库", "无需裁决", "交给你裁决的背景", "拆条与去向", "观察"]) {
+      expect(report, name).not.toContain(name);
+    }
     const audits = byName.get(PAGE_FILES.audits) ?? "";
     expect(audits).toContain("I-21");
     const model = buildKbModel(files.filter((f) => isExportSource(f.path)));
