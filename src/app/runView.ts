@@ -186,6 +186,15 @@ export function usageText(record: RunRecord): string | null {
   return null;
 }
 
+/** The same in a few characters, for the history table: `$0.42` or `194k tokens`. */
+export function usageShort(record: RunRecord): string | null {
+  const stream = record.engineReport?.stream;
+  if (!stream) return null;
+  if (stream.costUsd !== null) return formatCost(stream.costUsd);
+  if (stream.inputTokens === null && stream.outputTokens === null) return null;
+  return `${formatTokenCount((stream.inputTokens ?? 0) + (stream.outputTokens ?? 0))} tokens`;
+}
+
 /** How long a run took: from its start to its end (or to now while it goes on). */
 export function runDurationMs(record: RunRecord, now: number = Date.now()): number {
   return Math.max(0, (record.endedAt ?? now) - record.startedAt);

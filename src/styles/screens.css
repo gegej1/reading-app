@@ -1105,10 +1105,22 @@
   margin: 1.6em 0;
 }
 
+/* Like the report's other sections (.prose h2): a cinnabar square, then the title. */
 .report-audit__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 4px;
   font: 700 19px/1.45 var(--font-serif);
   letter-spacing: 0.06em;
+}
+
+.report-audit__title::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: var(--seal);
 }
 
 .page__status {

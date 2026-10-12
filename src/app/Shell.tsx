@@ -69,32 +69,39 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="spine__foot">
           {syncs ? <RunIndicator /> : null}
           {syncs ? <SyncIndicator /> : null}
-          <button
-            type="button"
-            className={cx("spine__reload", reloading && "is-spinning")}
-            onClick={() => void reload()}
-            title="重新载入知识库"
-            aria-label="重新载入知识库"
-            disabled={reloading}
-          >
-            ↻
-          </button>
-          <span
-            className={cx("spine__source", !writable && "is-readonly")}
-            title={sourceDetail ? `${sourceLabel}：${sourceDetail}` : sourceLabel}
-          >
-            {sourceLabel}
-          </span>
-          {syncs ? (
-            <Link
-              to="/settings"
-              className={cx("spine__settings", active === "settings" && "is-active")}
-              aria-current={active === "settings" ? "page" : undefined}
-              title="设置"
+          <div className="spine__tools">
+            <button
+              type="button"
+              className={cx("spine__reload", reloading && "is-spinning")}
+              onClick={() => void reload()}
+              title="重新载入知识库"
+              aria-label="重新载入知识库"
+              disabled={reloading}
             >
-              设置
-            </Link>
-          ) : null}
+              ↻
+            </button>
+            {syncs ? (
+              <Link
+                to="/settings"
+                className={cx("spine__settings", active === "settings" && "is-active")}
+                aria-current={active === "settings" ? "page" : undefined}
+                title={sourceDetail ? `设置 · 知识库：${sourceDetail}` : "设置"}
+                aria-label="设置"
+              >
+                {"\u2699\uFE0E"}
+              </Link>
+            ) : null}
+          </div>
+          {/* On the Mac the settings show where the knowledge base is; the
+              web, the demo and the read-only preview say where the data comes from. */}
+          {syncs ? null : (
+            <span
+              className={cx("spine__source", !writable && "is-readonly")}
+              title={sourceDetail ? `${sourceLabel}：${sourceDetail}` : sourceLabel}
+            >
+              {sourceLabel}
+            </span>
+          )}
         </div>
       </nav>
       <main className="desk" ref={desk} id="desk">

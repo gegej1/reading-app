@@ -3,6 +3,7 @@ import { pickDailyEntry, stripMarkdown, type DiseEntry, type DiseSection } from 
 import { useCapture } from "../../app/capture";
 import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, pageRoute } from "../../app/links";
+import { useRun } from "../../app/RunContext";
 import { RunStartButton } from "../../app/RunStartButton";
 import { cx, EmptyState, Numbered, Seal } from "../../ui/components";
 import { formatIsoDate, todayLabel } from "../../ui/format";
@@ -118,6 +119,7 @@ function ShortcutNotice() {
 
 export function TodayScreen({ now = new Date() }: { now?: Date }) {
   const { model } = useKb();
+  const run = useRun();
   const { dashboard } = model;
   const label = todayLabel(now);
   const entry = model.dise ? pickDailyEntry(model.dise.entries, now) : null;
@@ -213,6 +215,11 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
             <Link to="/rulings?tab=audit" className="btn">
               去抽查
             </Link>
+            {run.available ? (
+              <button type="button" className="btn btn--quiet" onClick={() => run.openPanel("history")}>
+                运行记录
+              </button>
+            ) : null}
           </div>
         </aside>
       </div>

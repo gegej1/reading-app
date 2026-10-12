@@ -43,6 +43,7 @@
 
 /* The title slip (题签) pasted on the cover. */
 .spine__brand {
+  flex: none;
   writing-mode: vertical-rl;
   padding: 13px 7px;
   margin-bottom: 28px;
@@ -130,7 +131,13 @@
   margin-top: auto;
 }
 
-.spine__reload {
+.spine__tools {
+  display: flex;
+  gap: 8px;
+}
+
+.spine__reload,
+.spine__settings {
   display: grid;
   place-items: center;
   width: 30px;
@@ -148,9 +155,20 @@
     border-color 0.2s;
 }
 
-.spine__reload:hover:not(:disabled) {
+.spine__reload:hover:not(:disabled),
+.spine__settings:hover {
   color: var(--spine-ink);
   border-color: var(--spine-faint);
+}
+
+.spine__settings {
+  text-decoration: none;
+}
+
+.spine__settings.is-active {
+  color: var(--spine-ink);
+  border-color: var(--seal);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--seal) 35%, transparent);
 }
 
 .spine__reload.is-spinning {
@@ -584,6 +602,21 @@
   color: var(--spine-ink);
 }
 
+/* Short windows (the default one is 720 points tall): a tighter spine. */
+@media (max-height: 800px) {
+  .spine {
+    padding-top: 14px;
+  }
+
+  .spine__brand {
+    margin-bottom: 18px;
+  }
+
+  .spine__link {
+    padding: 10px 0 12px;
+  }
+}
+
 /* Ink spreading from a drop. */
 @keyframes run-ink {
   0% {
@@ -595,34 +628,13 @@
   }
 }
 
-.spine__settings {
-  writing-mode: vertical-rl;
-  padding: 7px 4px;
-  font: 500 12px/1 var(--font-serif);
-  letter-spacing: 0.32em;
-  color: var(--spine-faint);
-  text-decoration: none;
-  border-radius: 4px;
-  transition: color 0.2s;
-}
-
-.spine__settings:hover {
-  color: var(--spine-ink);
-}
-
-.spine__settings.is-active {
-  color: var(--spine-ink);
-  box-shadow: inset 2px 0 0 var(--seal);
-}
-
 @media (max-width: 640px) {
   .run-indicator {
     flex-direction: row;
     padding: 6px 8px;
   }
 
-  .run-indicator__label,
-  .spine__settings {
+  .run-indicator__label {
     writing-mode: horizontal-tb;
     letter-spacing: 0.08em;
   }

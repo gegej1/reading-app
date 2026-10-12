@@ -37,30 +37,32 @@ export function RunLive({ record, steps }: { record: RunRecord; steps: readonly 
 
   return (
     <section className="run-live" aria-label={`${TASK_LABEL[record.task]}进行中`}>
-      <div className="run-live__meter">
-        <div className="run-live__status">
-          <span className="run-live__ink" aria-hidden="true" />
-          <span className="run-live__phase">{stopping ? "正在停止…" : phaseLabel(record.phase, record.task)}</span>
+      <div className="run-live__head">
+        <div className="run-live__meter">
+          <div className="run-live__status">
+            <span className="run-live__ink" aria-hidden="true" />
+            <span className="run-live__phase">{stopping ? "正在停止…" : phaseLabel(record.phase, record.task)}</span>
+          </div>
+          <span className="run-live__clock num" aria-label="已经运行">
+            {formatClock(runDurationMs(record, now))}
+          </span>
         </div>
-        <span className="run-live__clock num" aria-label="已经运行">
-          {formatClock(runDurationMs(record, now))}
-        </span>
-      </div>
-      <p className="run-live__engine">
-        {ENGINE_LABEL[record.engine]} · {model ?? "默认模型"}
-        {usage ? <span className="run-live__usage"> · {usage}</span> : null}
-      </p>
-      <div className="run-live__actions">
-        <button type="button" className="btn btn--small" onClick={() => void stop()} disabled={!cancellable || stopping}>
-          {stopping ? "正在停止…" : "取消"}
-        </button>
-        <span className="run-live__hint">收起这个面板不会停下；左边栏一直显示进度。</span>
-      </div>
-      {error ? (
-        <p className="run-error" role="alert">
-          {error}
+        <p className="run-live__engine">
+          {ENGINE_LABEL[record.engine]} · {model ?? "默认模型"}
+          {usage ? <span className="run-live__usage"> · {usage}</span> : null}
         </p>
-      ) : null}
+        <div className="run-live__actions">
+          <button type="button" className="btn btn--small" onClick={() => void stop()} disabled={!cancellable || stopping}>
+            {stopping ? "正在停止…" : "取消"}
+          </button>
+          <span className="run-live__hint">收起这个面板不会停下；左边栏一直显示进度。</span>
+        </div>
+        {error ? (
+          <p className="run-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
       <StepList steps={steps} follow />
     </section>
   );

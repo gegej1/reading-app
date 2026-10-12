@@ -67,7 +67,8 @@ describe("shell", () => {
           <RunIndicator />
         </RunContext.Provider>,
       );
-    expect(indicator({})).toContain(">运行记录<");
+    // Nothing to show while no run goes on and every result was seen (今日 leads to the history).
+    expect(indicator({})).toBe("");
     expect(indicator({ activeTask: "ingest", status: { phase: "running", run: null, gateAttempt: 0 } })).toMatch(/is-running[\s\S]*>入库中</);
     expect(indicator({ activeTask: "landRulings", status: { phase: "needsDecision", run: null, gateAttempt: 0 } })).toMatch(
       /is-attention[\s\S]*>待处理</,

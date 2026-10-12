@@ -541,10 +541,10 @@ describe("the history", () => {
     });
     mount(backend);
     await waitFor(() => container?.querySelector(".today") != null, "今日");
-    backend.emit("run-show", null);
-    await waitFor(() => buttonNamed("运行记录") !== undefined, "the panel");
-    click(buttonNamed("运行记录"));
+    // 今日 leads to the history.
+    click(container?.querySelector(".today__links button"));
     await waitFor(() => container?.querySelectorAll(".history__row").length === 2, "the rows");
+    expect(container?.querySelector('.run-panel__tabs [aria-selected="true"]')?.textContent).toBe("运行记录");
     const rows = [...(container?.querySelectorAll(".history__row") ?? [])].map((row) => row.textContent ?? "");
     expect(rows[0]).toContain("入库");
     expect(rows[0]).toContain("Claude");
@@ -555,7 +555,7 @@ describe("the history", () => {
     expect(rows[1]).toContain("落裁决");
     expect(rows[1]).toContain("gpt-5");
     expect(rows[1]).toContain("保留提交");
-    expect(rows[1]).toContain("输入 12k · 输出 1.2k tokens");
+    expect(rows[1]).toContain("14k tokens");
 
     click(container?.querySelectorAll(".history__row")[1]);
     await waitFor(() => container?.querySelector(".history-detail__head") != null, "the detail");
@@ -564,6 +564,7 @@ describe("the history", () => {
     expect(detail).toContain("wiki/a.md 里有新的断链 [[x]]");
     expect(detail).toContain("保留时没通过的检查");
     expect(detail).toContain("self/待裁决/Q-004.md");
+    expect(detail).toContain("用量 输入 12k · 输出 1.2k tokens");
     expect(backend.called("run_record")[0]?.args).toEqual({ runId: codex.id });
     click(buttonNamed("← 运行记录"));
     expect(container?.querySelectorAll(".history__row")).toHaveLength(2);

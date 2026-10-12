@@ -59,12 +59,13 @@ export function IssueList({
 export function RunFacts({ record }: { record: RunRecord }) {
   const usage = usageText(record);
   const engineMs = record.engineReport?.durationMs ?? null;
+  const paid = record.engineReport?.stream.costUsd !== null && record.engineReport?.stream.costUsd !== undefined;
   return (
     <p className="run-facts">
       <span>
         {ENGINE_LABEL[record.engine]} · {record.engineReport?.stream.model ?? record.model ?? "默认模型"}
       </span>
-      {usage ? <span>花费 {usage}</span> : null}
+      {usage ? <span>{paid ? "花费" : "用量"} {usage}</span> : null}
       <span>用时 {formatDuration(runDurationMs(record))}</span>
       {engineMs !== null && engineMs > 0 ? <span>AI 工作 {formatDuration(engineMs)}</span> : null}
       {record.commit ? (
@@ -292,7 +293,9 @@ function Failure({ record }: { record: RunRecord }) {
       </h3>
       <p className="run-failed__message">{record.message}</p>
       {failure && !(record.message ?? "").includes(failure) ? <p className="run-failed__detail">{failure}</p> : null}
-      <p className="run-failed__calm">什么都没有提交，队列原样留着。</p>
+      <p className="run-failed__calm">
+        {(record.message ?? "").includes("队列原样留着") ? "什么都没有提交。" : "什么都没有提交，队列原样留着。"}
+      </p>
       <RunFacts record={record} />
       <Retry task={record.task} engine={record.engine} />
     </div>

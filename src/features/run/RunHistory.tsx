@@ -8,7 +8,7 @@ import {
   outcomeLabel,
   runDurationMs,
   TASK_LABEL,
-  usageText,
+  usageShort,
   type RunDetail,
 } from "../../app/runView";
 import { cx, EmptyState } from "../../ui/components";
@@ -174,7 +174,7 @@ export function RunHistory() {
             <td>
               <OutcomeChip record={record} />
             </td>
-            <td className="history__usage">{usageText(record) ?? "—"}</td>
+            <td className="history__usage">{usageShort(record) ?? "—"}</td>
             <td className="history__duration">{record.endedAt ? formatDuration(runDurationMs(record)) : "—"}</td>
           </tr>
         ))}
