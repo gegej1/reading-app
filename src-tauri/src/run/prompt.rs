@@ -102,6 +102,19 @@ mod tests {
     }
 
     #[test]
+    fn both_prompts_keep_existing_dise_entries_as_agents_md_says() {
+        for task in [Task::Ingest, Task::LandRulings] {
+            let text = template(task);
+            // Every existing entry stays, confirmed or not; new content is a draft.
+            assert!(text.contains("已有的底色条目一个字都不动，盖没盖章都一样"), "{task:?}");
+            assert!(text.contains("（草稿，待你确认）"), "{task:?}");
+            assert!(text.contains("systems/"), "{task:?}");
+            // Nothing that reads as "only confirmed entries are protected".
+            assert!(!text.contains("标题带 ✅ 的底色条目"), "{task:?}");
+        }
+    }
+
+    #[test]
     fn codex_gets_a_note_about_reading_files_and_claude_does_not() {
         let claude = engine_prompt(Task::Ingest, EngineKind::Claude, "2026-10-12", &queue());
         assert_eq!(claude, task_prompt(Task::Ingest, "2026-10-12", &queue()));
