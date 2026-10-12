@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { allShortcuts, STAMP_FORMAT, stableUuid, tokenText, toPlist } from "./shortcuts/definitions.mjs";
+import { allShortcuts, stableUuid, tokenText, toPlist } from "./shortcuts/definitions.mjs";
 
 const root = join(import.meta.dirname, "..");
 
@@ -71,8 +71,31 @@ describe("the iPhone shortcuts", () => {
     expect(saves).toEqual(["/底色/收件/记一笔/", "/底色/收件/回答/"]);
   });
 
-  it("name files with the stamp the Mac reads back", () => {
-    expect(STAMP_FORMAT).toBe("yyyy-MM-dd'T'HH-mm-ss");
+  it("name files with an ISO 8601 stamp, whatever calendar the phone uses", () => {
+    for (const name of ["记一笔", "答裁决"]) {
+      const actions = shortcuts[name].WFWorkflowActions;
+      const id = (action) => action.WFWorkflowActionIdentifier;
+      const params = (action) => action.WFWorkflowActionParameters;
+      const dates = actions.filter((action) => id(action) === "is.workflow.actions.format.date");
+      expect(dates.length, name).toBe(1);
+      const date = params(dates[0]);
+      // A custom pattern follows the phone's calendar (2569 in the Buddhist
+      // one); the ISO 8601 style is always Gregorian.
+      expect(date.WFDateFormatStyle).toBe("ISO 8601");
+      expect(date.WFISO8601IncludeTime).toBe(true);
+      expect(date.WFDateFormat).toBeUndefined();
+      // Colons become dashes: 2026-10-12T14:03:22+08:00 -> 2026-10-12T14-03-22+08-00.
+      const replace = actions.find((action) => id(action) === "is.workflow.actions.text.replace");
+      expect(params(replace)).toMatchObject({ WFReplaceTextFind: ":", WFReplaceTextReplace: "-", WFReplaceTextRegularExpression: false });
+      expect(params(replace).WFInput.Value.attachmentsByRange["{0, 1}"].OutputUUID).toBe(date.UUID);
+      const naming = params(actions.find((action) => id(action) === "is.workflow.actions.setitemname"));
+      const refs = Object.values(naming.WFName.Value.attachmentsByRange).map((ref) => ref.OutputUUID);
+      expect(refs).toContain(params(replace).UUID);
+      expect(refs).not.toContain(date.UUID);
+    }
+  });
+
+  it("are the capture shortcut in the share sheet", () => {
     const capture = shortcuts["记一笔"];
     expect(capture.WFWorkflowTypes).toEqual(["ActionExtension"]);
     expect(capture.WFWorkflowNoInputBehavior.Name).toBe("WFWorkflowNoInputBehaviorAskForInput");

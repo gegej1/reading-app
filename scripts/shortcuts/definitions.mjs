@@ -12,8 +12,14 @@
 import { createHash } from "node:crypto";
 
 export const BRIDGE = "底色";
-/** The Format Date pattern; the Mac reads this stamp back from the file name. */
-export const STAMP_FORMAT = "yyyy-MM-dd'T'HH-mm-ss";
+/**
+ * The time in the file names: Format Date's ISO 8601 style, which is
+ * Gregorian whatever calendar the phone is set to (a custom pattern like
+ * yyyy-MM-dd would write 2569 on a phone set to the Buddhist calendar),
+ * with the colons made dashes: 2026-10-12T14-03-22+08-00. The Mac takes the
+ * capture time from the file itself and uses the name only to keep files apart.
+ */
+export const STAMP_STYLE = "ISO 8601";
 const OBJECT_REPLACEMENT = "\uFFFC";
 
 /** A stable UUID for one action of one shortcut. */
@@ -87,13 +93,23 @@ const getFile = (uuid, path) =>
 
 const textOf = (uuid, ref) => action("detect.text", { UUID: uuid, WFInput: variable(ref) });
 
-const formatNow = (uuid) =>
+/** Now as an ISO 8601 stamp without colons: two actions, the second's output is the stamp. */
+const stampNow = (dateUuid, stampUuid) => [
   action("format.date", {
-    UUID: uuid,
-    WFDateFormatStyle: "Custom",
-    WFDateFormat: STAMP_FORMAT,
+    UUID: dateUuid,
+    WFDateFormatStyle: STAMP_STYLE,
+    WFISO8601IncludeTime: true,
     WFDate: tokenText(CURRENT_DATE),
-  });
+  }),
+  action("text.replace", {
+    UUID: stampUuid,
+    WFInput: tokenText(output(dateUuid, "Formatted Date")),
+    WFReplaceTextFind: ":",
+    WFReplaceTextReplace: "-",
+    WFReplaceTextCaseSensitive: true,
+    WFReplaceTextRegularExpression: false,
+  }),
+];
 
 const saveInto = (uuid, ref, folder) =>
   action("documentpicker.save", {
@@ -110,6 +126,7 @@ const show = (text) => action("showresult", { Text: text });
 export function captureShortcut() {
   const id = (name) => stableUuid(`记一笔/${name}`);
   const text = id("text");
+  const date = id("date");
   const stamp = id("stamp");
   const named = id("named");
   return shortcut({
@@ -118,11 +135,11 @@ export function captureShortcut() {
     share: true,
     actions: [
       textOf(text, SHORTCUT_INPUT),
-      formatNow(stamp),
+      ...stampNow(date, stamp),
       action("setitemname", {
         UUID: named,
         WFInput: variable(output(text, "Text")),
-        WFName: tokenText(output(stamp, "Formatted Date"), ".txt"),
+        WFName: tokenText(output(stamp, "Updated Text"), ".txt"),
         WFDontIncludeFileExtension: false,
       }),
       saveInto(id("saved"), output(named, "Renamed Item"), "收件/记一笔"),
@@ -190,6 +207,7 @@ export function answerShortcut() {
   const question = id("question");
   const questionText = id("question-text");
   const answer = id("answer");
+  const date = id("date");
   const stamp = id("stamp");
   const named = id("named");
   const rulingRef = output(ruling, "Item from List");
@@ -230,11 +248,11 @@ export function answerShortcut() {
         WFInputType: "Text",
         WFAskActionDefaultAnswer: "",
       }),
-      formatNow(stamp),
+      ...stampNow(date, stamp),
       action("setitemname", {
         UUID: named,
         WFInput: variable(output(answer, "Provided Input")),
-        WFName: tokenText(rulingRef, "-", output(stamp, "Formatted Date"), ".txt"),
+        WFName: tokenText(rulingRef, "-", output(stamp, "Updated Text"), ".txt"),
         WFDontIncludeFileExtension: false,
       }),
       saveInto(id("saved"), output(named, "Renamed Item"), "收件/回答"),
