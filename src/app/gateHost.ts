@@ -20,6 +20,38 @@ import type { RunStatus } from "./runs";
 /** What `run_gate_input` returns: the gate's input, and which check it belongs to. */
 export type GateRequest = GateInput & { runId: string; attempt: number };
 
+// The newest input checked for each run, so the run panel can show exactly
+// what the gate saw (the before and after of every changed file). Kept in
+// memory only: it holds knowledge-base content.
+const checked = new Map<string, GateRequest>();
+const watchers = new Set<() => void>();
+/** How many runs' inputs are kept. */
+const KEEP_INPUTS = 5;
+
+function remember(input: GateRequest) {
+  const previous = checked.get(input.runId);
+  if (previous && previous.attempt > input.attempt) return;
+  checked.delete(input.runId);
+  checked.set(input.runId, input);
+  while (checked.size > KEEP_INPUTS) {
+    const oldest = checked.keys().next().value;
+    if (oldest === undefined) break;
+    checked.delete(oldest);
+  }
+  for (const watcher of watchers) watcher();
+}
+
+/** The newest gate input of a run this window checked, or null. */
+export function checkedInput(runId: string): GateRequest | null {
+  return checked.get(runId) ?? null;
+}
+
+/** Calls `watcher` whenever a new input was checked; returns the unsubscribe function. */
+export function watchCheckedInputs(watcher: () => void): () => void {
+  watchers.add(watcher);
+  return () => watchers.delete(watcher);
+}
+
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
@@ -68,6 +100,7 @@ export function startGateHost(
     taken.add(key);
     try {
       const input = await bridge.call<GateRequest>("run_gate_input", { runId, attempt });
+      remember(input);
       let report: GateReport;
       try {
         report = gate(input);

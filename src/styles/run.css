@@ -1,0 +1,1218 @@
+/* AI runs: the start sheet (a requisition slip), the run panel (a scroll
+   unrolled from the right), the running ledger of steps (流水簿), results,
+   the collation view (校勘) and the history. Loaded with the run panel; the
+   sidebar indicator lives in shell.css. */
+
+/* ---------- The start sheet ---------- */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 9vh 16px 16px;
+  overflow-y: auto;
+  background: rgba(39, 34, 28, 0.32);
+  animation: capture-fade 0.18s ease-out both;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sheet-scrim {
+    background: rgba(0, 0, 0, 0.55);
+  }
+}
+
+.sheet {
+  position: relative;
+  width: min(520px, 100%);
+  padding: 26px 30px 22px;
+  background: var(--grain), var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 10px;
+  box-shadow: var(--shadow-float);
+  animation: capture-rise 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* The perforated edge of a slip torn from a pad. */
+.sheet::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--rule-strong) 0 4px, transparent 4px 9px);
+}
+
+.sheet__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: var(--ink-faint);
+}
+
+.sheet__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font: 900 30px/1.2 var(--font-serif);
+  letter-spacing: 0.16em;
+}
+
+.sheet__title::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: var(--seal);
+  transform: rotate(-7deg);
+}
+
+.sheet__purpose {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.sheet__rows {
+  margin: 18px 0 0;
+  padding: 6px 0;
+  border-top: 3px double var(--rule-strong);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+/* A ledger line: the label, a dotted leader, the value. */
+.sheet-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  padding: 7px 0;
+}
+
+.sheet-row__label {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+}
+
+.sheet-row__label::after {
+  content: "";
+  flex: 1;
+  min-width: 24px;
+  margin: 0 10px;
+  border-bottom: 1px dotted var(--rule-strong);
+}
+
+.sheet-row__value {
+  max-width: 64%;
+  margin: 0;
+  font-size: 14px;
+  text-align: right;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.sheet-row__value .num {
+  font-size: 16px;
+}
+
+.sheet__muted {
+  color: var(--ink-soft);
+}
+
+/* What it may cost: set apart like a note in the margin, in the user's script. */
+.sheet__cost {
+  margin-top: 16px;
+  padding: 10px 14px;
+  font: 600 15.5px/1.6 var(--font-serif);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--seal-wash);
+  border-left: 3px solid var(--seal);
+  border-radius: 0 4px 4px 0;
+}
+
+.sheet__notes {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink-faint);
+}
+
+.sheet__notes li::before {
+  content: "·";
+  margin-right: 0.6em;
+  color: var(--seal);
+}
+
+.sheet__warning {
+  margin-top: 12px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  background: var(--ochre-wash);
+  border-left: 3px solid var(--ochre);
+  border-radius: 0 4px 4px 0;
+}
+
+.sheet__error {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--seal);
+}
+
+.sheet__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.sheet__go {
+  min-height: 40px;
+  padding: 0 24px;
+  font-size: 14.5px;
+  letter-spacing: 0.12em;
+}
+
+/* ---------- The run panel ---------- */
+
+.run-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(39, 34, 28, 0.14);
+  animation: capture-fade 0.18s ease-out both;
+}
+
+@media (prefers-color-scheme: dark) {
+  .run-scrim {
+    background: rgba(0, 0, 0, 0.35);
+  }
+}
+
+.run-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(580px, calc(100vw - 110px));
+  background: var(--grain), var(--paper-raised);
+  border-left: 1px solid var(--paper-edge);
+  box-shadow: -18px 0 40px -24px rgba(39, 34, 28, 0.55);
+  outline: none;
+  animation: run-unroll 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* The rod of a hanging scroll (轴) along the left edge. */
+.run-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 7px;
+  background: linear-gradient(90deg, var(--spine), color-mix(in srgb, var(--spine) 70%, var(--paper-edge)) 55%, var(--spine));
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+@keyframes run-unroll {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+.run-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 6px 34px;
+}
+
+.run-panel__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: var(--ink-faint);
+}
+
+.run-panel__title {
+  margin-top: 4px;
+  font: 900 26px/1.25 var(--font-serif);
+  letter-spacing: 0.14em;
+}
+
+.run-panel__close {
+  padding: 6px 10px;
+  font: 500 12.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.run-panel__close:hover {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.run-panel__tabs {
+  margin: 8px 28px 0 34px;
+}
+
+.run-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 28px 48px 34px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+.run-section__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 22px 0 8px;
+  font: 700 14.5px/1.4 var(--font-serif);
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+}
+
+.run-section__title .num {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.run-section__aside {
+  font: 400 12px/1 var(--font-ui);
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+.run-error {
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--seal);
+  background: var(--seal-wash);
+  border-radius: 4px;
+}
+
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.run-actions__aside {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.run-details {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.run-details > summary {
+  width: fit-content;
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.run-details > summary:hover {
+  color: var(--ink);
+}
+
+.run-details--steps {
+  margin-top: 26px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.run-details__list {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+  line-height: 1.7;
+}
+
+.run-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.run-facts > span + span::before {
+  content: "·";
+  margin: 0 0.6em;
+  color: var(--ink-ghost);
+}
+
+.run-facts code {
+  font-size: 11.5px;
+}
+
+/* ---------- Live ---------- */
+
+.run-live__meter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--rule-strong);
+}
+
+.run-live__status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.run-live__ink {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  background: var(--seal);
+  border-radius: 50%;
+  animation: run-ink 1.6s ease-out infinite;
+}
+
+.run-live__phase {
+  font: 700 18px/1.4 var(--font-serif);
+  letter-spacing: 0.08em;
+}
+
+/* A desk clock in lining numerals. */
+.run-live__clock {
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.run-live__engine {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.run-live__usage {
+  color: var(--ink-soft);
+}
+
+.run-live__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 12px 0 8px;
+}
+
+.run-live__hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ---------- The running ledger of steps ---------- */
+
+.steps {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps__empty {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 44px 38px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  border-bottom: 1px dotted var(--rule);
+  animation: step-in 0.28s ease-out both;
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.step__time {
+  font-size: 11.5px;
+  text-align: right;
+  color: var(--ink-ghost);
+}
+
+/* The verb, set in a little chop. */
+.step__chop {
+  justify-self: start;
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 4px;
+  font: 600 11.5px/1 var(--font-serif);
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+}
+
+.step__chop--read {
+  color: var(--ink-faint);
+}
+
+.step__chop--find {
+  color: var(--azurite);
+  border-color: color-mix(in srgb, var(--azurite) 40%, transparent);
+}
+
+.step__chop--write {
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-color: var(--seal);
+}
+
+.step__chop--edit {
+  color: var(--seal-ink);
+  background: var(--ochre);
+  border-color: var(--ochre);
+}
+
+.step__chop--delete {
+  color: var(--seal);
+  border-color: var(--seal);
+  text-decoration: line-through;
+}
+
+.step__chop--text {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  color: var(--azurite);
+  background: color-mix(in srgb, var(--azurite) 9%, transparent);
+  border-color: transparent;
+}
+
+.step__chop--note {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--ink-faint);
+  border-style: dashed;
+}
+
+.step__chop--result {
+  color: var(--seal-ink);
+  background: var(--jade);
+  border-color: var(--jade);
+}
+
+.step__chop--error {
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-color: var(--seal);
+}
+
+.step__chop--denied {
+  color: var(--seal);
+  background: var(--paper-raised);
+  border-color: var(--seal);
+}
+
+.step__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.step__target {
+  font: 12.5px/1.6 var(--font-mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.step__text {
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.step--note .step__text,
+.step--init .step__text {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.step--result .step__text {
+  color: var(--jade);
+}
+
+.step--error .step__text {
+  color: var(--seal);
+}
+
+/* A refused tool call stands out in cinnabar wash. */
+.step--denied {
+  background: var(--seal-wash);
+  border-bottom-color: var(--seal-line);
+}
+
+.step__denied {
+  padding: 0 5px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-radius: 2px;
+}
+
+/* ---------- Results ---------- */
+
+.run-result {
+  margin-top: 18px;
+}
+
+.run-done {
+  position: relative;
+  padding: 20px 0 6px;
+}
+
+/* A tall seal stamped at the top right: 已入库. */
+.run-done__stamp {
+  position: absolute;
+  top: 16px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  padding: 10px 0;
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 2px var(--seal),
+    inset 0 0 0 3.5px color-mix(in srgb, var(--seal-ink) 85%, transparent);
+  transform: rotate(-7deg);
+  -webkit-mask-image: var(--wear);
+  mask-image: var(--wear);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  animation: stamp 0.46s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.run-done__stamp span {
+  writing-mode: vertical-rl;
+  font: 900 17px/1.05 var(--font-serif);
+  letter-spacing: 0.04em;
+}
+
+.run-done__title {
+  max-width: calc(100% - 70px);
+  font: 700 22px/1.4 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.run-done__summary {
+  max-width: calc(100% - 70px);
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.run-done__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  margin: 18px 0 4px;
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 12px;
+  border-right: 1px solid var(--rule);
+}
+
+.figure:last-child {
+  border-right: 0;
+}
+
+.figure__value {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.figure__label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+.run-done__note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* Not passed: an outlined seal, the changes wait. */
+.run-decision__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 0 4px;
+}
+
+.run-decision__mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  padding: 7px 0;
+  writing-mode: vertical-rl;
+  font: 900 15px/1.1 var(--font-serif);
+  color: var(--seal);
+  border: 2px solid var(--seal);
+  border-radius: 3px;
+  transform: rotate(-6deg);
+  -webkit-mask-image: var(--wear);
+  mask-image: var(--wear);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+
+.run-decision__title {
+  font: 700 19px/1.45 var(--font-serif);
+  letter-spacing: 0.04em;
+}
+
+.run-decision__message {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.run-decision__engine {
+  margin-top: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  background: var(--ochre-wash);
+  border-left: 3px solid var(--ochre);
+  border-radius: 0 4px 4px 0;
+}
+
+.run-decision__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 3px double var(--rule-strong);
+}
+
+.run-decision__hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.run-confirm {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--seal-wash);
+  border: 1px solid var(--seal-line);
+  border-radius: 6px;
+  animation: capture-rise 0.2s ease-out both;
+}
+
+.run-confirm__text {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+.run-confirm__text strong {
+  color: var(--seal);
+}
+
+.run-confirm .run-actions {
+  margin-top: 12px;
+}
+
+/* The problems, numbered like the items of a document: 一、二、三 */
+.issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.issue {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.issue__no {
+  font: 700 14px/1 var(--font-serif);
+  color: var(--seal);
+  text-align: center;
+}
+
+.issues--warning .issue__no {
+  color: var(--ochre);
+}
+
+.issue__text {
+  font-size: 13.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.issues--warning .issue__text {
+  color: var(--ink-soft);
+}
+
+.issue__open {
+  padding: 2px 8px;
+  font: 500 12px/1.4 var(--font-ui);
+  color: var(--azurite);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--azurite) 35%, transparent);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.issue__open:hover {
+  border-color: var(--azurite);
+}
+
+.run-failed,
+.run-plain {
+  padding: 18px 0 4px;
+}
+
+.run-failed__title,
+.run-plain__title {
+  font: 700 21px/1.4 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.run-failed__message,
+.run-plain__message {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.run-failed__detail {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.run-failed__calm,
+.run-plain__hint {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+/* ---------- Changed files and the collation view ---------- */
+
+.changed-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.changed {
+  background: var(--paper);
+  border: 1px solid var(--paper-edge);
+  border-radius: 6px;
+}
+
+.changed.has-issue {
+  border-color: var(--seal-line);
+}
+
+.changed__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.changed__head:hover {
+  background: linear-gradient(90deg, var(--seal-wash), transparent 80%);
+}
+
+.changed__status {
+  padding: 1px 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ochre);
+  background: var(--ochre-wash);
+  border-radius: 2px;
+}
+
+.changed__status.is-added {
+  color: var(--jade);
+  background: color-mix(in srgb, var(--jade) 12%, transparent);
+}
+
+.changed__status.is-deleted {
+  color: var(--seal);
+  background: var(--seal-wash);
+}
+
+.changed__path {
+  flex: 1;
+  min-width: 0;
+  font: 12.5px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.changed__counts {
+  display: flex;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.changed__added {
+  color: var(--jade);
+}
+
+.changed__removed {
+  color: var(--seal);
+}
+
+.changed__issue {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-radius: 2px;
+}
+
+.changed__body {
+  padding: 0 10px 10px;
+}
+
+.diff {
+  overflow: hidden;
+  font: 13px/1.8 var(--font-ui);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.diff__row {
+  display: grid;
+  grid-template-columns: 32px 32px 16px minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.diff__no {
+  padding-right: 6px;
+  font-size: 11px;
+  text-align: right;
+  color: var(--ink-ghost);
+  user-select: none;
+  -webkit-user-select: none;
+  border-right: 1px solid var(--rule);
+}
+
+.diff__sign {
+  font: 700 12px/1.8 var(--font-mono);
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Long Chinese lines and paths wrap; nothing scrolls sideways. */
+.diff__text {
+  padding: 0 10px 0 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.diff__row.is-add {
+  background: color-mix(in srgb, var(--jade) 11%, transparent);
+}
+
+.diff__row.is-add .diff__sign {
+  color: var(--jade);
+}
+
+.diff__row.is-del {
+  background: var(--seal-wash);
+}
+
+.diff__row.is-del .diff__sign {
+  color: var(--seal);
+}
+
+.diff__row.is-del .diff__text {
+  color: color-mix(in srgb, var(--ink) 78%, var(--seal));
+}
+
+/* The very characters that changed, like a red correction in the margin (朱批). */
+.diff__mark {
+  color: inherit;
+  border-radius: 2px;
+}
+
+.diff__row.is-del .diff__mark {
+  background: color-mix(in srgb, var(--seal) 26%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--seal) 70%, transparent);
+}
+
+.diff__row.is-add .diff__mark {
+  background: color-mix(in srgb, var(--jade) 30%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--jade);
+  text-underline-offset: 3px;
+}
+
+.diff__cr {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--ink-ghost);
+}
+
+.diff__gap {
+  display: block;
+  width: 100%;
+  padding: 3px 12px;
+  font: 12px/1.6 var(--font-ui);
+  text-align: left;
+  color: var(--ink-faint);
+  background: var(--paper);
+  border: 0;
+  border-top: 1px dashed var(--rule);
+  border-bottom: 1px dashed var(--rule);
+  cursor: pointer;
+}
+
+.diff__gap:hover {
+  color: var(--ink);
+}
+
+.diff__note,
+.diff__empty {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ---------- History ---------- */
+
+.history {
+  width: 100%;
+  margin-top: 14px;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.history th {
+  padding: 6px 6px 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-align: left;
+  color: var(--ink-faint);
+  border-bottom: 3px double var(--rule-strong);
+}
+
+.history td {
+  padding: 9px 6px;
+  vertical-align: baseline;
+  border-bottom: 1px solid var(--rule);
+}
+
+.history__row {
+  cursor: pointer;
+  transition: background-color 0.18s;
+}
+
+.history__row:hover {
+  background: linear-gradient(90deg, var(--seal-wash), transparent 85%);
+}
+
+.history__open {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.history__engine {
+  white-space: nowrap;
+}
+
+.history__model {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.history__usage,
+.history__duration {
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.outcome {
+  display: inline-block;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  border-radius: 2px;
+}
+
+.outcome--ok {
+  color: var(--jade);
+  background: color-mix(in srgb, var(--jade) 12%, transparent);
+}
+
+.outcome--attention {
+  color: var(--seal-ink);
+  background: var(--seal);
+}
+
+.outcome--quiet {
+  color: var(--ink-faint);
+  background: var(--paper-sunk);
+}
+
+.outcome--failed {
+  color: var(--seal);
+  border: 1px solid var(--seal-line);
+}
+
+.outcome--running {
+  color: var(--ochre);
+  background: var(--ochre-wash);
+}
+
+.history-detail__back {
+  margin-top: 14px;
+  padding: 0;
+  font: 500 12.5px/1.4 var(--font-ui);
+  letter-spacing: 0.08em;
+  color: var(--azurite);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.history-detail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.history-detail__title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font: 700 21px/1.4 var(--font-serif);
+  letter-spacing: 0.08em;
+}
+
+.history-detail__time {
+  font: 400 13px/1 var(--font-ui);
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+.history-detail__message,
+.history-detail__summary {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.history-detail__trigger,
+.history-detail__copies {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .run-panel {
+    width: 100vw;
+  }
+
+  .history th:nth-child(3),
+  .history td:nth-child(3) {
+    display: none;
+  }
+}

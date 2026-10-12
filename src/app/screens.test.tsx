@@ -11,7 +11,8 @@ import { AppRoutes } from "../App";
 import { TodayScreen } from "../features/today/TodayScreen";
 import { KbContext, type KbContextValue } from "./KbContext";
 import { makeLinkResolver, pageRoute } from "./links";
-import { NO_RUNS, RunContext } from "./RunContext";
+import { NO_RUNS, RunContext, type RunContextValue } from "./RunContext";
+import { RunIndicator } from "./RunIndicator";
 
 const model = buildKbModel(Object.entries(fixtureKb).map(([path, content]) => ({ path, content })));
 
@@ -50,6 +51,29 @@ describe("shell", () => {
     const html = render("/rulings");
     for (const label of ["今日", "底色", "裁决", "知识", "原料"]) expect(html).toContain(label);
     expect(html).toMatch(/class="spine__link is-active"[^>]*aria-current="page"[^>]*><span class="spine__label">裁决/);
+  });
+
+  it("has no settings entry and no run indicator on the web and in the demo", () => {
+    const html = render("/");
+    expect(html).not.toContain('href="/settings"');
+    expect(html).not.toContain("run-indicator");
+  });
+
+  it("the run indicator says what a run is doing and opens the panel", () => {
+    const opened: string[] = [];
+    const indicator = (value: Partial<RunContextValue>) =>
+      renderToStaticMarkup(
+        <RunContext.Provider value={{ ...NO_RUNS, available: true, openPanel: (view) => opened.push(view ?? ""), ...value }}>
+          <RunIndicator />
+        </RunContext.Provider>,
+      );
+    expect(indicator({})).toContain(">运行记录<");
+    expect(indicator({ activeTask: "ingest", status: { phase: "running", run: null, gateAttempt: 0 } })).toMatch(/is-running[\s\S]*>入库中</);
+    expect(indicator({ activeTask: "landRulings", status: { phase: "needsDecision", run: null, gateAttempt: 0 } })).toMatch(
+      /is-attention[\s\S]*>待处理</,
+    );
+    expect(indicator({ unseen: true })).toMatch(/is-result[\s\S]*>有结果</);
+    expect(renderToStaticMarkup(<RunIndicator />)).toBe("");
   });
 
   it("highlights the section of the page being read", () => {

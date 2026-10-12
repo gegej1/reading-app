@@ -1,0 +1,437 @@
+/* The settings screen: a form on rice paper, sections headed like the rest of
+   the app, engines as cards, the shortcut as a key cap in a well. */
+
+.settings-grid {
+  max-width: 760px;
+}
+
+.settings-banner {
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  background: var(--seal-wash);
+  border-left: 3px solid var(--seal);
+  border-radius: 0 4px 4px 0;
+}
+
+.settings-section {
+  padding: 4px 0 26px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.settings-section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settings-section__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 700 18px/1.4 var(--font-serif);
+  letter-spacing: 0.14em;
+}
+
+.settings-section__title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: var(--seal);
+  transform: rotate(-7deg);
+}
+
+.settings-section__aside {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+.settings-form {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.settings-form__saved {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.settings-note {
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  background: var(--ochre-wash);
+  border-left: 3px solid var(--ochre);
+  border-radius: 0 4px 4px 0;
+}
+
+.settings-done {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--jade);
+}
+
+.settings-version {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+}
+
+/* ---------- Fields ---------- */
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field__label {
+  font-size: 12.5px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+}
+
+.field__input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  font: 400 14px/1 var(--font-ui);
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 2px rgba(39, 34, 28, 0.06);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.field__input::placeholder {
+  color: var(--ink-ghost);
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--seal-line);
+  box-shadow: 0 0 0 3px var(--seal-wash);
+}
+
+.field__input--number {
+  width: 110px;
+  font-family: var(--font-num);
+  font-size: 16px;
+  font-variant-numeric: lining-nums;
+}
+
+.field__affix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field__prefix,
+.field__suffix {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.field__prefix {
+  font-family: var(--font-num);
+  font-size: 16px;
+}
+
+.field__hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}
+
+.field__error {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--seal);
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+/* ---------- Engines as cards ---------- */
+
+.engine-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.engine-cards > .field__label {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  padding: 0;
+}
+
+.engine-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px 12px 40px;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    border-color 0.18s,
+    background-color 0.18s;
+}
+
+.engine-card:hover {
+  border-color: var(--seal-line);
+}
+
+.engine-card input {
+  position: absolute;
+  top: 15px;
+  left: 14px;
+  accent-color: var(--seal);
+}
+
+.engine-card.is-chosen {
+  background: var(--seal-wash);
+  border-color: var(--seal-line);
+}
+
+.engine-card__name {
+  font: 700 16px/1.4 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.engine-card__program {
+  font: 11.5px/1.5 var(--font-mono);
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.engine-card__program.is-missing {
+  font-family: var(--font-ui);
+  color: var(--seal);
+}
+
+/* ---------- Knowledge base ---------- */
+
+.kb-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.kb-path code {
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.kb-path__source {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.kb-check {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.kb-check.is-ok {
+  color: var(--jade);
+}
+
+.kb-check.is-bad {
+  color: var(--seal);
+}
+
+.kb-check__warn {
+  color: var(--ochre);
+}
+
+.kb-settings .settings-note {
+  margin-top: 10px;
+}
+
+.kb-settings .settings-form__actions {
+  margin-top: 14px;
+}
+
+.kb-candidate {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 6px;
+  animation: capture-rise 0.2s ease-out both;
+}
+
+.kb-candidate.is-ok {
+  border-color: color-mix(in srgb, var(--jade) 45%, transparent);
+}
+
+.kb-candidate.is-bad {
+  border-color: var(--seal-line);
+}
+
+.kb-candidate__label {
+  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--ink-faint);
+}
+
+/* ---------- The shortcut: a key cap in a well ---------- */
+
+.keycap-well {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 200px;
+  min-height: 78px;
+  padding: 12px 22px;
+  background: var(--paper-sunk);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.keycap {
+  display: inline-block;
+  min-width: 3em;
+  padding: 8px 14px 6px;
+  font: 500 24px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 4px;
+  border-radius: 7px;
+  box-shadow: 0 2px 6px -3px rgba(39, 34, 28, 0.35);
+}
+
+.keycap-well.is-recording {
+  border: 1px solid var(--seal);
+  box-shadow: 0 0 0 3px var(--seal-wash);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+.keycap-well__prompt {
+  font: 600 16px/1.4 var(--font-serif);
+  letter-spacing: 0.12em;
+  color: var(--seal);
+}
+
+.keycap-well__bad {
+  font-size: 11.5px;
+  color: var(--seal);
+}
+
+.shortcut-settings .field__hint,
+.shortcut-settings .field__error {
+  margin-top: 8px;
+}
+
+.shortcut-settings .settings-form__actions {
+  margin-top: 12px;
+}
+
+/* ---------- A switch ---------- */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch__track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex: none;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-strong);
+  border-radius: 11px;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(39, 34, 28, 0.25);
+  transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.switch.is-on .switch__track {
+  background: var(--seal);
+  border-color: var(--seal-deep);
+}
+
+.switch.is-on .switch__thumb {
+  transform: translateX(18px);
+  border-color: var(--seal-deep);
+}
+
+.switch input:focus-visible + .switch__track {
+  outline: 2px solid var(--seal);
+  outline-offset: 2px;
+}
+
+.switch__label {
+  font-size: 14px;
+}
+
+.autostart .field__hint {
+  margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .field-row,
+  .engine-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

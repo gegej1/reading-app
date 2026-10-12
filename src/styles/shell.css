@@ -514,3 +514,117 @@
     transform: translateY(4px);
   }
 }
+
+/* ---------- AI runs in the sidebar (desktop) ---------- */
+
+.run-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 6px 9px;
+  font: inherit;
+  color: var(--spine-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.run-indicator:hover,
+.run-indicator:focus-visible {
+  color: var(--spine-ink);
+  border-color: color-mix(in srgb, var(--spine-faint) 30%, transparent);
+}
+
+.run-indicator__mark {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid color-mix(in srgb, var(--spine-faint) 60%, transparent);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.run-indicator__label {
+  writing-mode: vertical-rl;
+  font-size: 11.5px;
+  line-height: 1;
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+}
+
+.run-indicator.is-running {
+  color: var(--spine-ink);
+}
+
+.run-indicator.is-running .run-indicator__mark {
+  background: var(--seal);
+  border-color: var(--seal);
+  animation: run-ink 1.6s ease-out infinite;
+}
+
+.run-indicator.is-attention .run-indicator__mark {
+  background: var(--seal);
+  border-color: var(--seal);
+}
+
+.run-indicator.is-attention .run-indicator__label {
+  color: color-mix(in srgb, var(--seal) 70%, var(--spine-ink));
+}
+
+.run-indicator.is-result .run-indicator__mark {
+  background: color-mix(in srgb, var(--jade) 65%, var(--spine-ink));
+  border-color: transparent;
+}
+
+.run-indicator.is-result .run-indicator__label {
+  color: var(--spine-ink);
+}
+
+/* Ink spreading from a drop. */
+@keyframes run-ink {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--seal) 60%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+.spine__settings {
+  writing-mode: vertical-rl;
+  padding: 7px 4px;
+  font: 500 12px/1 var(--font-serif);
+  letter-spacing: 0.32em;
+  color: var(--spine-faint);
+  text-decoration: none;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.spine__settings:hover {
+  color: var(--spine-ink);
+}
+
+.spine__settings.is-active {
+  color: var(--spine-ink);
+  box-shadow: inset 2px 0 0 var(--seal);
+}
+
+@media (max-width: 640px) {
+  .run-indicator {
+    flex-direction: row;
+    padding: 6px 8px;
+  }
+
+  .run-indicator__label,
+  .spine__settings {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0.08em;
+  }
+}
+

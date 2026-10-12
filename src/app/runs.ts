@@ -13,10 +13,13 @@
 // | `run_keep`        | `{ runId }`                    | `RunStatus`    |
 // | `run_recheck`     | `{ runId }`                    | `RunStatus`    |
 // | `run_history`     | –                              | `RunRecord[]`  |
+// | `run_record`      | `{ runId }`                    | `RunDetail` (a kept run with its steps) |
 // | `run_settings`    | –                              | `RunSettingsView` |
 // | `kb_read_head`    | `{ path }`                     | `string \| null` (a file as of the last commit) |
 //
 // `run_gate_input` and `run_gate_report` belong to the gate host (gateHost.ts).
+// Besides `run-status` and `run-step`, the backend sends `run-show` when the
+// user clicked the notification about a run: the panel then shows its result.
 
 import type { GateReport, RunTask } from "../domain";
 

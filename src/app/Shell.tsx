@@ -3,17 +3,19 @@ import { Link, useLocation } from "react-router";
 import { useKb } from "./KbContext";
 import { desktop } from "./desktop";
 import { findPage, NAV_ITEMS, navSectionForGroup, pathFromPageRoute, type NavSection } from "./links";
+import { RunIndicator } from "./RunIndicator";
 import { SyncIndicator } from "./SyncIndicator";
 import { cx } from "../ui/components";
 
 /** Which nav item is active for the current route. */
-function useActiveSection(): NavSection {
+function useActiveSection(): NavSection | "settings" {
   const { pathname } = useLocation();
   const { model } = useKb();
   if (pathname.startsWith("/dise")) return "dise";
   if (pathname.startsWith("/rulings")) return "rulings";
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/raw")) return "raw";
+  if (pathname.startsWith("/settings")) return "settings";
   const pagePath = pathFromPageRoute(pathname);
   if (pagePath !== null) {
     const doc = findPage(model, pagePath);
@@ -65,6 +67,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ))}
         </ul>
         <div className="spine__foot">
+          {syncs ? <RunIndicator /> : null}
           {syncs ? <SyncIndicator /> : null}
           <button
             type="button"
@@ -82,6 +85,16 @@ export function Shell({ children }: { children: ReactNode }) {
           >
             {sourceLabel}
           </span>
+          {syncs ? (
+            <Link
+              to="/settings"
+              className={cx("spine__settings", active === "settings" && "is-active")}
+              aria-current={active === "settings" ? "page" : undefined}
+              title="设置"
+            >
+              设置
+            </Link>
+          ) : null}
         </div>
       </nav>
       <main className="desk" ref={desk} id="desk">
