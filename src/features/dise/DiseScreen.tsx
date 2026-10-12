@@ -3,7 +3,8 @@ import { Link, useParams } from "react-router";
 import { fmString, type DiseEntry } from "../../domain";
 import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, safeDecode } from "../../app/links";
-import { Chip, cx, EmptyState, PageHeader, Seal, SealSlot } from "../../ui/components";
+import { useRun } from "../../app/RunContext";
+import { Chip, cx, EmptyState, Hint, PageHeader, Seal, SealSlot } from "../../ui/components";
 import { Markdown } from "../../ui/Markdown";
 import { formatIsoDate } from "../../ui/format";
 import { confirmEdit } from "./confirm";
@@ -16,6 +17,8 @@ interface EntryCardProps {
   writable: boolean;
   /** Any edit is queued or being written: every write button waits. */
   busy: boolean;
+  /** Why confirming is not possible right now (an AI run holds the knowledge base), or null. */
+  blockedHint: string | null;
   /** This entry's edit is the one being written. */
   pending: boolean;
   justStamped: boolean;
@@ -24,15 +27,34 @@ interface EntryCardProps {
   onConfirm(entry: DiseEntry, desired: boolean): void;
 }
 
-function EntryCard({ entry, index, writable, busy, pending, justStamped, error, onConfirm }: EntryCardProps) {
+function EntryCard({ entry, index, writable, busy, blockedHint, pending, justStamped, error, onConfirm }: EntryCardProps) {
   const { resolveLink } = useKb();
+  // A draft that is confirmed (a hand-written heading with both) is a confirmed entry.
+  const draft = entry.draft && !entry.confirmed;
+  const disabledHint = !writable ? READ_ONLY_HINT : blockedHint;
+  const button = (
+    <button
+      type="button"
+      className={cx("btn", "btn--small", entry.confirmed ? "btn--quiet" : "btn--seal-outline")}
+      onClick={() => onConfirm(entry, !entry.confirmed)}
+      disabled={!writable || busy || blockedHint !== null}
+      aria-describedby={`dise-${entry.id}-title`}
+    >
+      {pending ? "写入中…" : entry.confirmed ? "取消确认" : draft ? "确认草稿" : "盖章确认"}
+    </button>
+  );
   return (
     <article
       id={`dise-${entry.id}`}
-      className={cx("entry rise", entry.confirmed && "is-confirmed", entry.draft && "is-draft")}
+      className={cx("entry rise", entry.confirmed && "is-confirmed", draft && "is-draft")}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
       aria-labelledby={`dise-${entry.id}-title`}
     >
+      {draft ? (
+        <span className="entry__tag" aria-hidden="true">
+          草稿
+        </span>
+      ) : null}
       <div className="entry__gutter">
         <span className="entry__id">{entry.id}</span>
       </div>
@@ -49,9 +71,13 @@ function EntryCard({ entry, index, writable, busy, pending, justStamped, error, 
             ))}
             {entry.confirmed ? (
               <Chip tone="seal">已确认 ✅</Chip>
+            ) : draft ? (
+              <Chip tone="ochre" title="AI 用你的原话起草的条目，等你确认">
+                AI 草稿 · 待你确认
+              </Chip>
             ) : (
-              <Chip tone="ochre" title={entry.draft ? "AI 起草，待你确认" : "还没有确认"}>
-                草稿
+              <Chip tone="plain" title="还没有盖章确认">
+                未确认
               </Chip>
             )}
           </span>
@@ -72,17 +98,16 @@ function EntryCard({ entry, index, writable, busy, pending, justStamped, error, 
               {error}
             </p>
           ) : null}
-          <span title={writable ? undefined : READ_ONLY_HINT} className="entry__toggle-wrap">
-            <button
-              type="button"
-              className={cx("btn", "btn--small", entry.confirmed ? "btn--quiet" : "btn--seal-outline")}
-              onClick={() => onConfirm(entry, !entry.confirmed)}
-              disabled={!writable || busy}
-              aria-describedby={`dise-${entry.id}-title`}
-            >
-              {pending ? "写入中…" : entry.confirmed ? "取消确认" : "盖章确认"}
-            </button>
-          </span>
+          {draft && !error ? (
+            <p className="entry__draft-note">确认后去掉草稿标记，盖上 ✅</p>
+          ) : null}
+          {disabledHint ? (
+            <Hint text={disabledHint} align="end">
+              {button}
+            </Hint>
+          ) : (
+            <span className="entry__toggle-wrap">{button}</span>
+          )}
         </footer>
       </div>
       <div className="entry__seal" aria-hidden={!entry.confirmed}>
@@ -94,6 +119,7 @@ function EntryCard({ entry, index, writable, busy, pending, justStamped, error, 
 
 export function DiseScreen() {
   const { model, writable, editing, editFile, notify, resolveLink } = useKb();
+  const { editBlocked } = useRun();
   const params = useParams();
   const focusId = safeDecode(params.entryId);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -121,6 +147,7 @@ export function DiseScreen() {
   }
 
   const confirmedCount = dise.entries.filter((e) => e.confirmed).length;
+  const draftCount = dise.entries.filter((e) => e.draft && !e.confirmed).length;
   const version = fmString(dise.frontmatter, "版本");
   const status = fmString(dise.frontmatter, "状态");
   const updated = fmString(dise.frontmatter, "更新");
@@ -169,13 +196,19 @@ export function DiseScreen() {
             <Link
               key={entry.id}
               to={diseEntryRoute(entry.id)}
-              className={cx("pip", entry.confirmed && "is-on")}
-              title={`${entry.id} ${entry.title}${entry.confirmed ? " · 已确认" : ""}`}
+              className={cx("pip", entry.confirmed && "is-on", entry.draft && !entry.confirmed && "is-draft")}
+              title={`${entry.id} ${entry.title}${entry.confirmed ? " · 已确认" : entry.draft ? " · AI 草稿" : ""}`}
             />
           ))}
         </div>
         <p className="dise__count">
           已确认 <span className="num">{confirmedCount}</span> / <span className="num">{dise.entries.length}</span>
+          {draftCount > 0 ? (
+            <span className="dise__drafts">
+              {" "}
+              · AI 草稿 <span className="num">{draftCount}</span> 条待你确认
+            </span>
+          ) : null}
           {writable ? null : <span className="dise__readonly"> · 只读预览</span>}
         </p>
       </div>
@@ -214,6 +247,7 @@ export function DiseScreen() {
                   index={index++}
                   writable={writable}
                   busy={editing || pendingId !== null}
+                  blockedHint={editBlocked}
                   pending={pendingId === entry.id}
                   justStamped={stampedId === entry.id}
                   error={error?.id === entry.id ? error.message : null}
@@ -229,7 +263,10 @@ export function DiseScreen() {
           <ol>
             {dise.entries.map((entry) => (
               <li key={entry.id}>
-                <Link to={diseEntryRoute(entry.id)} className={cx("rail__item", entry.confirmed && "is-on")}>
+                <Link
+                  to={diseEntryRoute(entry.id)}
+                  className={cx("rail__item", entry.confirmed && "is-on", entry.draft && !entry.confirmed && "is-draft")}
+                >
                   <span className="rail__id">{entry.id}</span>
                   <span className="rail__title">{entry.title}</span>
                 </Link>

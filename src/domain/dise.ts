@@ -18,7 +18,7 @@ export interface DiseEntry {
   notes: string[];
   /** The heading ends with ` ✅`: the user confirmed this entry. */
   confirmed: boolean;
-  /** The heading carries a draft marker such as （草稿，待你确认）. */
+  /** The heading carries the draft marker （草稿，待你确认）: the AI drafted it from the user's words. */
   draft: boolean;
   /** The user's own words: the first blockquote of the entry, without `>` markers. */
   quote: string;
@@ -55,6 +55,25 @@ const CHECK = "✅";
 /** Trailing check mark, tolerating an emoji variation selector. */
 const TRAILING_CHECK = /[ \t]*✅\uFE0F?$/;
 const TRAILING_NOTE = /[（(]([^（）()]*)[）)]\s*$/;
+/**
+ * The marker of an entry the AI drafted: （草稿，待你确认）, also with ASCII
+ * parentheses or comma and stray spaces, together with the spaces before it.
+ */
+const DRAFT_MARKER_SOURCE = String.raw`[ \t]*[（(][ \t]*草稿[ \t]*[，,][ \t]*待你确认[ \t]*[）)]`;
+const DRAFT_MARKER = new RegExp(DRAFT_MARKER_SOURCE);
+const DRAFT_MARKERS = new RegExp(DRAFT_MARKER_SOURCE, "g");
+/** The marker as AGENTS.md writes it. */
+export const DRAFT_MARKER_TEXT = "（草稿，待你确认）";
+
+/** True when a heading (or any text) carries the draft marker. */
+export function hasDraftMarker(text: string): boolean {
+  return DRAFT_MARKER.test(text);
+}
+
+/** `text` without any draft marker (and the spaces before it). */
+function withoutDraftMarker(text: string): string {
+  return text.replace(DRAFT_MARKERS, "");
+}
 
 interface TitleParts {
   title: string;
@@ -69,15 +88,15 @@ function parseEntryTitle(rest: string): TitleParts {
   const confirmed = TRAILING_CHECK.test(text);
   if (confirmed) text = text.replace(TRAILING_CHECK, "").trimEnd();
   const rawTitle = text;
+  const draft = hasDraftMarker(text);
+  if (draft) text = withoutDraftMarker(text).trim();
 
   const notes: string[] = [];
-  let draft = false;
   for (;;) {
     const match = TRAILING_NOTE.exec(text);
     if (!match || match.index === 0) break;
     const note = (match[1] ?? "").trim();
-    if (note.includes("草稿")) draft = true;
-    else if (note !== "") notes.unshift(note);
+    if (note !== "") notes.unshift(note);
     text = text.slice(0, match.index).trimEnd();
   }
   return { title: text, rawTitle, notes, confirmed, draft };
@@ -199,10 +218,15 @@ export function parseDise(markdown: string): DiseDoc {
  * entry is already in that state the input is returned unchanged, so a stale
  * screen can never flip a confirmation the user did not mean to change.
  *
- * Only the heading line changes; trailing whitespace and CR are kept, so
- * setting the old state again restores the input exactly. Headings inside
- * fenced code and the frontmatter are never touched. Throws when the entry
- * does not exist.
+ * Confirming a draft also removes its marker （草稿，待你确认）, in the same
+ * edit of the same line: `### D04 标题（草稿，待你确认）` becomes
+ * `### D04 标题 ✅`. Un-confirming only ever removes the check mark; it never
+ * puts a marker back.
+ *
+ * Only the heading line changes; trailing whitespace and CR are kept, so for
+ * an entry that is not a draft, setting the old state again restores the
+ * input exactly. Headings inside fenced code and the frontmatter are never
+ * touched. Throws when the entry does not exist.
  */
 export function setConfirmed(markdown: string, id: string, desired: boolean): string {
   const lines = splitLines(markdown);
@@ -217,7 +241,8 @@ export function setConfirmed(markdown: string, id: string, desired: boolean): st
     const content = line.slice(0, line.length - trailing.length);
     const confirmed = TRAILING_CHECK.test(content);
     if (confirmed === desired) return markdown;
-    lines[i] = (desired ? `${content} ${CHECK}` : content.replace(TRAILING_CHECK, "")) + trailing;
+    lines[i] =
+      (desired ? `${withoutDraftMarker(content).trimEnd()} ${CHECK}` : content.replace(TRAILING_CHECK, "")) + trailing;
     return lines.join("\n");
   }
   throw new Error(`底色里没有找到条目 ${id}`);

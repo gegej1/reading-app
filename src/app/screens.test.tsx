@@ -95,6 +95,23 @@ describe("底色", () => {
     expect(html).toContain('class="wikilink wikilink--broken"');
   });
 
+  it("shows AI drafts distinctly and offers to confirm them", () => {
+    const html = render("/dise");
+    const d04 = /<article id="dise-D04"[^>]*class="([^"]*)"[\s\S]*?<\/article>/.exec(html);
+    expect(d04?.[1]).toContain("is-draft");
+    const card = d04?.[0] ?? "";
+    expect(card).toContain('<span class="entry__tag" aria-hidden="true">草稿</span>');
+    expect(card).toContain("AI 草稿 · 待你确认");
+    expect(card).toContain("确认草稿");
+    expect(card).toContain("确认后去掉草稿标记");
+    // An entry that is simply not confirmed yet is no draft.
+    const d02 = /<article id="dise-D02"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
+    expect(d02).not.toContain("is-draft");
+    expect(d02).toContain("未确认");
+    expect(d02).toContain("盖章确认");
+    expect(text(html)).toContain("AI 草稿 1 条待你确认");
+  });
+
   it("disables the toggle in the read-only preview", () => {
     const html = render("/dise", { writable: false, sourceLabel: "开发预览 · 只读" });
     expect(html.match(/<button type="button" class="btn btn--small[^"]*" disabled=""/g)).toHaveLength(6);

@@ -554,6 +554,64 @@
   padding-top: 2px;
 }
 
+/* An AI draft (（草稿，待你确认）): thinner paper with a dashed ochre edge, and
+   an annotation slip (浮签) pasted on its left edge. */
+.entry.is-draft {
+  background:
+    repeating-linear-gradient(-45deg, transparent 0 9px, var(--ochre-wash) 9px 10px),
+    var(--paper);
+  border: 1px dashed color-mix(in srgb, var(--ochre) 55%, transparent);
+  box-shadow: none;
+}
+
+.entry.is-draft .entry__id {
+  color: var(--ochre);
+}
+
+.entry.is-draft .entry__title {
+  color: var(--ink-soft);
+}
+
+.entry.is-draft .entry__quote {
+  border-left: 2px dashed color-mix(in srgb, var(--ochre) 60%, transparent);
+}
+
+.entry__tag {
+  position: absolute;
+  top: 14px;
+  left: -11px;
+  z-index: 1;
+  padding: 7px 3px;
+  writing-mode: vertical-rl;
+  font: 600 11.5px/1 var(--font-serif);
+  letter-spacing: 0.3em;
+  color: var(--ochre);
+  background: color-mix(in srgb, var(--ochre-wash) 60%, var(--paper-raised));
+  border: 1px solid color-mix(in srgb, var(--ochre) 38%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 2px 4px -2px rgba(39, 34, 28, 0.3);
+  transform: rotate(-3deg);
+}
+
+.entry__draft-note {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--ochre);
+}
+
+.dise__drafts {
+  color: var(--ochre);
+}
+
+.pip.is-draft {
+  border: 1px dashed var(--ochre);
+  background: var(--ochre-wash);
+}
+
+.rail__item.is-draft .rail__id {
+  color: var(--ochre);
+}
+
 .dise__rail {
   position: sticky;
   top: 20px;

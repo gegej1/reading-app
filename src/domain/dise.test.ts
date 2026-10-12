@@ -102,6 +102,13 @@ describe("parseDise", () => {
 describe("setConfirmed", () => {
   const confirmedIn = (text: string, id: string) =>
     parseDise(text).entries.find((e) => e.id === id)?.confirmed;
+  /** The lines that differ, as [before, after] pairs (the line count must not change). */
+  const changedLines = (before: string, after: string) => {
+    const a = before.split("\n");
+    const b = after.split("\n");
+    expect(b.length).toBe(a.length);
+    return a.flatMap((line, i) => (line === b[i] ? [] : [[line, b[i]]]));
+  };
 
   it("adds a trailing check mark to an unconfirmed entry only", () => {
     const next = setConfirmed(md, "D02", true);
@@ -129,10 +136,13 @@ describe("setConfirmed", () => {
     expect(setConfirmed(md, "D04", false)).toBe(md);
   });
 
-  it("round-trips every entry to the identical string", () => {
-    for (const entry of parseDise(md).entries) {
+  it("round-trips every entry that is not a draft to the identical string", () => {
+    const entries = parseDise(md).entries.filter((entry) => !entry.draft);
+    expect(entries.map((entry) => entry.id)).toEqual(["D01", "D02", "D03", "D05", "D06"]);
+    for (const entry of entries) {
       const once = setConfirmed(md, entry.id, !entry.confirmed);
       expect(once, entry.id).not.toBe(md);
+      expect(changedLines(md, once), entry.id).toHaveLength(1);
       expect(setConfirmed(once, entry.id, entry.confirmed), entry.id).toBe(md);
     }
   });
@@ -145,12 +155,54 @@ describe("setConfirmed", () => {
     expect(setConfirmed(once, "D01", false)).toBe(crlf);
   });
 
-  it("keeps the draft marker when confirming a draft", () => {
+  it("confirming a draft removes its marker and adds ✅ in one single-line edit", () => {
     const next = setConfirmed(md, "D04", true);
-    expect(next).toContain("### D04 小步交付（草稿，待你确认） ✅\n");
+    expect(changedLines(md, next)).toEqual([["### D04 小步交付（草稿，待你确认）", "### D04 小步交付 ✅"]]);
     const d04 = parseDise(next).entries[3];
-    expect(d04?.confirmed).toBe(true);
-    expect(d04?.draft).toBe(true);
+    expect(d04).toMatchObject({ id: "D04", title: "小步交付", confirmed: true, draft: false, notes: [] });
+  });
+
+  it("un-confirming a confirmed draft never puts the marker back, and the two states round-trip", () => {
+    const confirmed = setConfirmed(md, "D04", true);
+    const unconfirmed = setConfirmed(confirmed, "D04", false);
+    expect(changedLines(confirmed, unconfirmed)).toEqual([["### D04 小步交付 ✅", "### D04 小步交付"]]);
+    expect(unconfirmed).not.toContain("（草稿，待你确认）");
+    expect(parseDise(unconfirmed).entries[3]).toMatchObject({ confirmed: false, draft: false });
+    // From here on confirm and un-confirm restore each other exactly.
+    expect(setConfirmed(unconfirmed, "D04", true)).toBe(confirmed);
+    expect(setConfirmed(setConfirmed(unconfirmed, "D04", true), "D04", false)).toBe(unconfirmed);
+  });
+
+  it("is idempotent for drafts too", () => {
+    const once = setConfirmed(md, "D04", true);
+    expect(setConfirmed(once, "D04", true)).toBe(once);
+    // Un-confirming an unconfirmed draft changes nothing: the marker stays.
+    expect(setConfirmed(md, "D04", false)).toBe(md);
+    // A heading that has both (written by hand) is already confirmed.
+    const both = "### D04 小步交付（草稿，待你确认） ✅\n";
+    expect(setConfirmed(both, "D04", true)).toBe(both);
+    expect(setConfirmed(both, "D04", false)).toBe("### D04 小步交付（草稿，待你确认）\n");
+  });
+
+  it("recognises the marker with ASCII punctuation, spaces and other notes, and keeps CRLF", () => {
+    const cases: [string, string][] = [
+      ["### D07 慢一点 (草稿, 待你确认)\n", "### D07 慢一点 ✅\n"],
+      ["### D07 慢一点 （ 草稿，待你确认 ）\n", "### D07 慢一点 ✅\n"],
+      ["### D07 慢一点（草稿，待你确认）（认同）\n", "### D07 慢一点（认同） ✅\n"],
+      ["### D07 慢一点（认同）（草稿，待你确认）\n", "### D07 慢一点（认同） ✅\n"],
+      ["### D07 慢一点（草稿，待你确认）  \r\n> 原话\r\n", "### D07 慢一点 ✅  \r\n> 原话\r\n"],
+    ];
+    for (const [before, after] of cases) {
+      expect(parseDise(before).entries[0]?.draft, before).toBe(true);
+      expect(setConfirmed(before, "D07", true), before).toBe(after);
+    }
+    expect(parseDise("### D07 慢一点（认同）（草稿，待你确认）\n").entries[0]).toMatchObject({
+      title: "慢一点",
+      notes: ["认同"],
+      draft: true,
+    });
+    // Other notes about drafts are notes, not the marker.
+    expect(parseDise("### D08 甲（草稿）\n").entries[0]).toMatchObject({ draft: false, notes: ["草稿"] });
   });
 
   it("tolerates the emoji variation selector when un-confirming", () => {

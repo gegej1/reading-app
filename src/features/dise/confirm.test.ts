@@ -37,6 +37,20 @@ describe("confirmEdit through editKbFile", () => {
     expect(changed).toEqual(["### D02 同一时间只做一件主要的事 ✅"]);
   });
 
+  it("confirms a draft: the marker goes and ✅ comes in the same line, one commit", async () => {
+    const store = createMemoryStore(fixtureKb);
+    const result = await apply(store, "D04", true);
+    expect(result).toMatchObject({ changed: true, message: "底色：确认 D04" });
+    expect(store.commits).toEqual([{ path: PATH, message: "底色：确认 D04" }]);
+    const saved = await store.read(PATH);
+    const before = ORIGINAL.split("\n");
+    const changed = saved.split("\n").filter((line, i) => line !== before[i]);
+    expect(changed).toEqual(["### D04 小步交付 ✅"]);
+    // Taking the confirmation back leaves an ordinary unconfirmed entry.
+    await apply(store, "D04", false);
+    expect(await store.read(PATH)).toContain("\n### D04 小步交付\n");
+  });
+
   it("un-confirms a confirmed entry, and confirming again restores the file", async () => {
     const store = createMemoryStore(fixtureKb);
     await apply(store, "D05", false);
