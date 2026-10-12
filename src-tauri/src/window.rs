@@ -2,11 +2,12 @@
 //! running in the menu bar), clicking the Dock icon or launching the app
 //! again shows it, and ⌘Q (or 退出 in the tray menu) quits. The capture
 //! window is never closed, only hidden. Focusing the main window syncs the
-//! knowledge base (at most once a minute).
+//! knowledge base (at most once a minute) and looks for files from the iPhone.
 
 use tauri::{AppHandle, Manager, RunEvent, Runtime, Window, WindowEvent};
 use tauri_plugin_global_shortcut::GlobalShortcut;
 
+use crate::bridge::BridgeService;
 use crate::capture_window::CAPTURE;
 use crate::run::service::RunService;
 use crate::sync_service::SyncService;
@@ -47,6 +48,10 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
             if let Some(service) = window.app_handle().try_state::<SyncService>() {
                 service.on_focus();
             }
+            // Whatever the phone wrote in the meantime comes in now.
+            if let Some(bridge) = window.app_handle().try_state::<BridgeService>() {
+                bridge.on_focus();
+            }
         }
         _ => {}
     }
@@ -75,6 +80,9 @@ pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
             }
             if let Some(service) = app.try_state::<SyncService>() {
                 service.stop();
+            }
+            if let Some(bridge) = app.try_state::<BridgeService>() {
+                bridge.stop();
             }
             if let Some(shortcuts) = app.try_state::<GlobalShortcut<R>>() {
                 if let Err(error) = shortcuts.unregister_all() {

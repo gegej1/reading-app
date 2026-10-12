@@ -9,10 +9,12 @@
 //! | `run-status`    | `RunStatus` (`run::service`)  | an AI run started, moved to its next phase or ended |
 //! | `run-step`      | `StepEvent` (`run::service`)  | one step of the run going on (a tool call, a note, …) |
 //! | `run-show`      | –                             | the user clicked the notification about a run (show its result) |
+//! | `bridge-ready`  | –                             | the iPhone bridge folder is ready: export the pages now |
 //!
 //! `reason` is `write`, `create`, `capture` (from the command line), `sync`,
-//! `run` (an AI run committed or discarded its changes) or `settings` (the
-//! knowledge-base folder changed); `window` is the label of the window that
+//! `run` (an AI run committed or discarded its changes), `settings` (the
+//! knowledge-base folder changed) or `bridge` (a capture or an answer from
+//! the iPhone was imported); `window` is the label of the window that
 //! made the change, so it can skip the reload it already does itself.
 
 use serde::Serialize;
@@ -26,6 +28,7 @@ pub const SYNC_STATUS: &str = "sync-status";
 pub const RUN_STATUS: &str = "run-status";
 pub const RUN_STEP: &str = "run-step";
 pub const RUN_SHOW: &str = "run-show";
+pub const BRIDGE_READY: &str = "bridge-ready";
 
 /// Payload of `kb-changed`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -80,6 +83,13 @@ pub fn run_step<R: Runtime>(app: &AppHandle<R>, step: &StepEvent) {
 pub fn run_show<R: Runtime>(app: &AppHandle<R>) {
     if let Err(error) = app.emit(RUN_SHOW, ()) {
         log::warn!("could not send {RUN_SHOW}: {error}");
+    }
+}
+
+/// Asks the main window to export the pages for the iPhone now.
+pub fn bridge_ready<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = app.emit(BRIDGE_READY, ()) {
+        log::warn!("could not send {BRIDGE_READY}: {error}");
     }
 }
 

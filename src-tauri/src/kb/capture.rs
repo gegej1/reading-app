@@ -65,7 +65,7 @@ impl LocalTime {
     }
 
     /// `2026-10-12T14:03:22+08:00`.
-    fn iso(&self) -> String {
+    pub fn iso(&self) -> String {
         let sign = if self.offset_minutes < 0 { '-' } else { '+' };
         let offset = self.offset_minutes.unsigned_abs();
         format!(
@@ -162,6 +162,12 @@ const BLANKS: &[char] = &[
 
 fn is_blank(c: char) -> bool {
     BLANKS.contains(&c) || ('\u{2000}'..='\u{200A}').contains(&c)
+}
+
+/// True for empty or whitespace-only text: what can be neither a capture
+/// nor an answer.
+pub fn is_blank_text(text: &str) -> bool {
+    text.chars().all(is_blank)
 }
 
 /// The path tried on the `attempt`-th try: the first one is `path` itself,

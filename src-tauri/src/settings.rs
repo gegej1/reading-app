@@ -9,7 +9,8 @@
 //! | `settings_set_kb`        | `path`     | saves `kbPath` (only a git repository root)           |
 //! | `settings_set_shortcut`  | `setting`  | registers the capture shortcut live, then saves it    |
 //! | `settings_set_autostart` | `enabled`  | launch at login on or off; whether it is on now       |
-//! | `settings_open_folder`   | `which`    | opens the logs (`logs`) or run records (`runs`) folder |
+//! | `settings_open_folder`   | `which`    | opens the logs (`logs`), run records (`runs`) or iPhone (`bridge`) folder |
+//! | `settings_set_bridge`    | `enabled`  | turns the iPhone bridge on or off                     |
 //!
 //! Every save goes through `crate::app_config`: atomic, and keys the app does
 //! not know stay in `config.json`. Errors are user-facing Chinese strings.
@@ -22,6 +23,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::app_config::{self, Changes, RemoteTarget};
+use crate::bridge::{BridgeService, BridgeStatus};
 use crate::capture_window;
 use crate::commands;
 use crate::events::{self, KbChanged};
@@ -85,6 +87,8 @@ pub struct SettingsInfo {
     pub autostart: Option<bool>,
     /// `config.json` cannot be read: saving is refused until it is fixed.
     pub config_problem: Option<String>,
+    /// The iPhone bridge; `None` when the app has none (tests).
+    pub bridge: Option<BridgeStatus>,
 }
 
 /// The remote the current branch syncs with (or `origin`), shown without
@@ -220,6 +224,7 @@ fn info<R: Runtime>(app: &AppHandle<R>, env: &ChildEnv) -> SettingsInfo {
         config_problem: config
             .as_deref()
             .and_then(|file| app_config::read_object(file).err()),
+        bridge: app.try_state::<BridgeService>().map(|bridge| bridge.status()),
     }
 }
 
@@ -405,6 +410,13 @@ pub async fn settings_open_folder<R: Runtime>(
             "runs" => commands::app_dir(&app)
                 .ok_or_else(|| "找不到 App 的数据文件夹".to_string())?
                 .join(RUNS_DIR),
+            "bridge" => {
+                let folder = crate::bridge_commands::setting(&app).dir?;
+                if !folder.is_dir() {
+                    return Err("iPhone 同步文件夹还没有建立".to_string());
+                }
+                folder
+            }
             other => return Err(format!("不认识的文件夹：{other}")),
         };
         std::fs::create_dir_all(&folder).map_err(|error| format!("没能建立文件夹（{error}）"))?;
@@ -414,6 +426,40 @@ pub async fn settings_open_folder<R: Runtime>(
         app.opener()
             .open_path(folder.to_string_lossy(), None::<&str>)
             .map_err(|error| format!("没能打开文件夹（{error}）"))
+    })
+    .await
+}
+
+/// How long turning the bridge on or off waits for it to take effect.
+const BRIDGE_SWITCH_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[tauri::command]
+pub async fn settings_set_bridge<R: Runtime>(
+    app: AppHandle<R>,
+    shell_env: State<'_, ShellEnvState>,
+    enabled: bool,
+) -> Result<SettingsInfo, String> {
+    let shell_env = shell_env.inner().clone();
+    call("settings_set_bridge", move || {
+        app_config::update(
+            &config_file(&app)?,
+            &Changes {
+                bridge_enabled: Some(enabled),
+                ..Changes::default()
+            },
+        )?;
+        log::info!(
+            "iphone bridge switched {} in the settings",
+            if enabled { "on" } else { "off" }
+        );
+        if let Some(bridge) = app.try_state::<BridgeService>() {
+            bridge.reconfigure();
+            let deadline = Instant::now() + BRIDGE_SWITCH_WAIT;
+            while bridge.status().enabled != enabled && Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+        Ok(info(&app, &shell_env.get().env))
     })
     .await
 }

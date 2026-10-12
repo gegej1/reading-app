@@ -102,7 +102,7 @@ pub fn read_config_string(config_file: &Path, key: &str) -> Option<String> {
 }
 
 /// Expands a leading `~` or `~/` and requires the result to be absolute.
-fn expand_home(path: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
+pub(crate) fn expand_home(path: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     let mut components = path.components();
     let expanded = match components.next() {
         Some(first) if first.as_os_str() == "~" => {

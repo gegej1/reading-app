@@ -38,6 +38,8 @@ fn main() {
             "settings_set_shortcut",
             "settings_set_autostart",
             "settings_open_folder",
+            "settings_set_bridge",
+            "bridge_export",
         ]),
     ))
     .expect("failed to run tauri-build");

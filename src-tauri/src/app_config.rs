@@ -25,6 +25,7 @@ pub const BUDGET: &str = "budgetUsd";
 pub const TIMEOUT: &str = "runTimeoutMinutes";
 pub const KB_PATH: &str = "kbPath";
 pub const SHORTCUT: &str = "captureShortcut";
+pub const BRIDGE_ENABLED: &str = crate::bridge::folder::ENABLED_KEY;
 
 /// More than this is taken for a typo (the same limits the runs use).
 pub const MAX_BUDGET_USD: f64 = 1000.0;
@@ -42,6 +43,8 @@ pub struct Changes {
     pub timeout_minutes: Option<f64>,
     pub kb_path: Option<String>,
     pub shortcut: Option<String>,
+    /// The iPhone bridge on (`true`, the default: the key is removed) or off.
+    pub bridge_enabled: Option<bool>,
 }
 
 /// Reads the AI settings of a save from the settings screen's JSON. Every
@@ -147,6 +150,9 @@ pub fn apply(object: &mut Map<String, Value>, changes: &Changes) {
     }
     if let Some(shortcut) = &changes.shortcut {
         set(SHORTCUT, Some(Value::String(shortcut.clone())));
+    }
+    if let Some(enabled) = changes.bridge_enabled {
+        set(BRIDGE_ENABLED, (!enabled).then_some(Value::Bool(false)));
     }
 }
 

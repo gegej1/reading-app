@@ -4,7 +4,8 @@
 //! dise --capture "<text>"   save the text as a capture (记一笔) in the inbox
 //! dise --capture=<text>     the same
 //! dise --answer Q-004 "<text>"   answer a pending ruling (a new file in inbox/裁决/)
-//! dise --sync               sync the knowledge base now
+//! dise --sync               sync the knowledge base now (and import what the
+//!                           iPhone left in the bridge folder)
 //! dise --ingest             start an AI run: 入库 (work through inbox/)
 //! dise --land-rulings       start an AI run: 落裁决 (work through inbox/裁决/)
 //!      --engine claude|codex   the engine of that run, instead of the configured one

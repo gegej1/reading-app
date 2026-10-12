@@ -49,6 +49,12 @@ toml = "0.8"
 # commands that run under a timeout (see src/kb/git.rs) and for stopping an
 # engine (see src/run/process.rs).
 libc = "0.2"
+# Watches the iPhone bridge folder in iCloud Drive for new files (FSEvents);
+# the bridge also polls, so a missed event only delays an import.
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+# Content hashes of imported iPhone files, so a file whose deletion failed is
+# never imported twice. Already part of the build through tauri.
+sha2 = "0.10"
 
 # Which app was in front before the capture window opened, to hand the focus
 # back when it closes (see src/capture_window.rs). Already part of the build

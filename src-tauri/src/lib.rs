@@ -16,6 +16,8 @@
 //! - `run`, `run_commands`: AI runs (入库, 落裁决): an engine edits the
 //!   knowledge base, the gate checks the result, the app commits it; a
 //!   notification when one ends while the main window is in the background;
+//! - `bridge`, `bridge_commands`: the iPhone bridge through iCloud Drive
+//!   (captures and answers from the phone come in, the 底色 layer goes out);
 //! - `settings`, `app_config`: the settings screen (engine, model, budget,
 //!   time limit, knowledge-base folder, capture shortcut, launch at login)
 //!   and saving `config.json`;
@@ -29,6 +31,8 @@
 //! - opener: http(s) links open in the default browser.
 
 mod app_config;
+mod bridge;
+mod bridge_commands;
 mod capture_window;
 mod cli;
 mod commands;
@@ -141,6 +145,11 @@ fn setup<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
     on_notification_click(app);
 
     service.start();
+    // The iPhone bridge: sets up its folder once the login shell is ready,
+    // imports what the phone wrote, and keeps watching.
+    let bridge = bridge_commands::service(app);
+    app.manage(bridge.clone());
+    bridge.start();
     perform(app, request);
     if request.has_action() {
         log::info!("started for the command line: staying in the menu bar");
@@ -283,6 +292,10 @@ fn perform<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
     if request.sync {
         if let Some(service) = app.try_state::<SyncService>() {
             service.schedule(Duration::ZERO, "command line");
+        }
+        // And whatever the iPhone left in the bridge folder.
+        if let Some(bridge) = app.try_state::<bridge::BridgeService>() {
+            bridge.import_now();
         }
     }
     if request.approve {
@@ -433,6 +446,8 @@ fn register<R: Runtime>(
             settings::settings_set_shortcut,
             settings::settings_set_autostart,
             settings::settings_open_folder,
+            settings::settings_set_bridge,
+            bridge_commands::bridge_export,
         ])
 }
 
@@ -949,6 +964,36 @@ mod ipc_tests {
         let refused = denied(invoke(&main, "settings_open_folder", json!({ "which": "desktop" })));
         assert!(refused.contains("不认识"), "{refused}");
 
+        // The iPhone export: registered, allowed for the main window, its
+        // arguments deserialize; a bridge that is not set up writes nothing.
+        app.manage(crate::bridge::BridgeService::new(
+            KbLock::default(),
+            ShellEnvState::default(),
+            crate::bridge::BridgeTiming::default(),
+            crate::bridge::Hooks {
+                kb_root: Box::new(|| Err("none".into())),
+                setting: Box::new(|| crate::bridge::folder::resolve(None, None, None)),
+                app_dir: None,
+                running: Box::new(|| None),
+                imported: Box::new(|_| {}),
+                ready: Box::new(|| {}),
+                sign: Box::new(|_, _| Err("none".into())),
+                download: Box::new(|_| {}),
+            },
+        ));
+        let exported = invoke(
+            &main,
+            "bridge_export",
+            json!({ "files": [{ "name": "今日.html", "content": "<p>今日</p>" }] }),
+        )
+        .unwrap();
+        assert_eq!(exported["exported"], false);
+        assert!(denied(invoke(&main, "bridge_export", json!({}))).contains("files"));
+        assert_eq!(
+            invoke(&main, "settings_get", json!({})).unwrap()["bridge"]["enabled"],
+            false
+        );
+
         // The capture window may only create files directly in inbox/.
         let capture = WebviewWindowBuilder::new(&app, "capture", Default::default())
             .build()
@@ -1010,6 +1055,8 @@ mod ipc_tests {
             ("settings_set_shortcut", json!({ "setting": "Ctrl+Alt+K" })),
             ("settings_set_autostart", json!({ "enabled": true })),
             ("settings_open_folder", json!({ "which": "logs" })),
+            ("settings_set_bridge", json!({ "enabled": false })),
+            ("bridge_export", json!({ "files": [] })),
         ] {
             let refused = denied(invoke(&capture, cmd, args));
             assert!(refused.contains("not allowed"), "{cmd}: {refused}");
