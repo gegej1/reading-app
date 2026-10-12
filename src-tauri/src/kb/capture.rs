@@ -10,6 +10,10 @@
 //!   offset), a blank line, then the text verbatim: only CRLF becomes LF and
 //!   the text ends with exactly one newline;
 //! - commit message `收件箱：记一笔（<source>）`.
+//!
+//! Answers to pending rulings (`--answer Q-004 "<text>"`) are built here too,
+//! like `buildAnswerAt` in `src/domain/answers.ts`: both are tested against
+//! `src/domain/__fixtures__/answer-cases.json`.
 
 use std::path::Path;
 
@@ -118,6 +122,37 @@ pub fn build_capture(text: &str, source: &str, at: &LocalTime) -> Result<Capture
     })
 }
 
+/// True for the id of a pending ruling: `Q-` and digits.
+fn is_ruling_id(id: &str) -> bool {
+    id.strip_prefix("Q-")
+        .is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Builds the file for an answer to the pending ruling `id` (`Q-004`):
+/// `inbox/裁决/Q-004-<time>-<source>.md` with `对象`, `时间` and `来源`, then
+/// the text verbatim like a capture's; commit message `收件箱：回答 Q-004（mac）`.
+pub fn build_answer(id: &str, text: &str, source: &str, at: &LocalTime) -> Result<Capture, String> {
+    if !SOURCES.contains(&source) {
+        return Err(format!("不认识的来源：{source}"));
+    }
+    if !is_ruling_id(id) {
+        return Err(format!("不是待裁决的编号：{id}（要写成 Q-004 这样）"));
+    }
+    if text.chars().all(is_blank) {
+        return Err("还没写字，没有可以记下的回答".to_string());
+    }
+    let body = text.replace("\r\n", "\n");
+    let body = body.trim_end_matches('\n');
+    Ok(Capture {
+        path: format!("inbox/裁决/{id}-{}-{source}.md", at.file_stamp()),
+        content: format!(
+            "---\n对象: {id}\n时间: {}\n来源: {source}\n---\n\n{body}\n",
+            at.iso()
+        ),
+        message: format!("收件箱：回答 {id}（{source}）"),
+    })
+}
+
 /// What JavaScript's `String.prototype.trim` removes (besides U+2000 to
 /// U+200A), so the Rust and the TypeScript side agree on which texts are empty.
 const BLANKS: &[char] = &[
@@ -221,6 +256,50 @@ mod tests {
             assert_eq!(built.content, case.content, "{}", case.name);
             assert_eq!(built.message, case.message, "{}", case.name);
         }
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AnswerCases {
+        accept: Vec<AnswerCase>,
+        reject_ids: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct AnswerCase {
+        name: String,
+        id: String,
+        text: String,
+        source: String,
+        at: LocalTime,
+        path: String,
+        content: String,
+        message: String,
+    }
+
+    #[test]
+    fn builds_the_same_answers_as_the_typescript_side() {
+        let cases: AnswerCases = serde_json::from_str(include_str!(
+            "../../../src/domain/__fixtures__/answer-cases.json"
+        ))
+        .expect("answer-cases.json");
+        for case in cases.accept {
+            let built = build_answer(&case.id, &case.text, &case.source, &case.at)
+                .unwrap_or_else(|error| panic!("{}: {error}", case.name));
+            assert_eq!(built.path, case.path, "{}", case.name);
+            assert_eq!(built.content, case.content, "{}", case.name);
+            assert_eq!(built.message, case.message, "{}", case.name);
+        }
+        let at = LocalTime::from(datetime!(2026-10-12 14:03:22 +08:00));
+        for id in cases.reject_ids {
+            assert!(build_answer(&id, "x", MAC, &at).is_err(), "{id:?}");
+        }
+        assert!(build_answer("Q-004", " \n ", MAC, &at)
+            .unwrap_err()
+            .contains("还没写字"));
+        assert!(build_answer("Q-004", "x", "fax", &at)
+            .unwrap_err()
+            .contains("来源"));
     }
 
     #[test]

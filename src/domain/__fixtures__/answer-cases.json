@@ -1,0 +1,26 @@
+{
+  "comment": "Shared by src/domain/answers.test.ts and src-tauri/src/kb/capture.rs: both implementations must turn each `accept` answer to a pending ruling into exactly this file, and refuse every id in `rejectIds`. All content is invented.",
+  "accept": [
+    {
+      "name": "one line from the Mac",
+      "id": "Q-004",
+      "text": "工具先不统一，各组自己选。",
+      "source": "mac",
+      "at": { "year": 2026, "month": 10, "day": 12, "hour": 14, "minute": 3, "second": 22, "offsetMinutes": 480 },
+      "path": "inbox/裁决/Q-004-2026-10-12T14-03-22-mac.md",
+      "content": "---\n对象: Q-004\n时间: 2026-10-12T14:03:22+08:00\n来源: mac\n---\n\n工具先不统一，各组自己选。\n",
+      "message": "收件箱：回答 Q-004（mac）"
+    },
+    {
+      "name": "CRLF becomes LF and the ending one newline, everything else stays",
+      "id": "Q-117",
+      "text": "  先这样定：\r\n\r\n一、照旧；\r\n二、三个月后再看。  \r\n\r\n",
+      "source": "web",
+      "at": { "year": 2026, "month": 1, "day": 2, "hour": 3, "minute": 4, "second": 5, "offsetMinutes": -210 },
+      "path": "inbox/裁决/Q-117-2026-01-02T03-04-05-web.md",
+      "content": "---\n对象: Q-117\n时间: 2026-01-02T03:04:05-03:30\n来源: web\n---\n\n  先这样定：\n\n一、照旧；\n二、三个月后再看。  \n",
+      "message": "收件箱：回答 Q-117（web）"
+    }
+  ],
+  "rejectIds": ["Q-1a", "P-004", "q-004", "Q-", "", "Q-004-标题", "../Q-004"]
+}

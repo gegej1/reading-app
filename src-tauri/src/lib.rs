@@ -215,8 +215,9 @@ fn on_tray_action<R: Runtime>(app: &AppHandle<R>, action: Action) {
 fn on_second_launch<R: Runtime>(app: &AppHandle<R>, args: Vec<String>) {
     let request = cli::parse(args.into_iter().skip(1));
     log::info!(
-        "second launch handed over to this instance (capture={}, sync={}, run={})",
+        "second launch handed over to this instance (capture={}, answer={}, sync={}, run={})",
         request.capture.is_some(),
+        request.answer.is_some(),
         request.sync,
         request.run.is_some()
     );
@@ -247,17 +248,28 @@ fn perform<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
         }
         None => None,
     };
-    if capture.is_some() || run.is_some() {
+    let answer = match &request.answer {
+        Some(Ok((id, text))) => Some((id.clone(), text.clone(), LocalTime::now())),
+        Some(Err(error)) => {
+            log::warn!("command line answer: {error}");
+            None
+        }
+        None => None,
+    };
+    if capture.is_some() || answer.is_some() || run.is_some() {
         let app = app.clone();
         let engine = request.engine.clone();
         let model = request.model.clone();
-        // One thread, so a capture given together with a run is in the queue
-        // before the run looks at it.
+        // One thread, so a capture or an answer given together with a run is
+        // in the queue before the run looks at it.
         let spawned = std::thread::Builder::new()
             .name("command-line".into())
             .spawn(move || {
                 if let Some((text, at)) = &capture {
                     capture_from_command_line(&app, text, at);
+                }
+                if let Some((id, text, at)) = &answer {
+                    answer_from_command_line(&app, id, text, at);
                 }
                 if let Some(task) = run {
                     run_from_command_line(&app, task, engine.as_deref(), model.as_deref());
@@ -320,6 +332,45 @@ fn capture_from_command_line<R: Runtime>(app: &AppHandle<R>, text: &str, at: &Lo
             events::files_written(app, KbChanged::new("capture", Some(saved.path), None));
         }
         Err(error) => log::warn!("command line capture failed ({millis} ms): {error}"),
+    }
+}
+
+/// Saves an answer from `--answer` exactly like the answer box of a ruling
+/// does: a new file in `inbox/裁决/`, committed on its own (beside an ingest,
+/// but not while a 落裁决 works through that folder). Logs the outcome,
+/// never the text.
+fn answer_from_command_line<R: Runtime>(app: &AppHandle<R>, id: &str, text: &str, at: &LocalTime) {
+    let started = Instant::now();
+    let result = (|| {
+        let built = capture::build_answer(id, text, capture::MAC, at)?;
+        let root = commands::kb_folder(app)?;
+        let env = &app.state::<ShellEnvState>().inner().get().env;
+        let running = app
+            .try_state::<run::service::RunService>()
+            .and_then(|runs| runs.active_task());
+        let lock = app.state::<KbLock>();
+        let guard = if commands::creates_beside_run(&built.path, running) {
+            lock.acquire_beside_job(commands::WRITE_OPERATION, commands::WRITE_WAIT)
+        } else {
+            lock.acquire(commands::WRITE_OPERATION, commands::WRITE_WAIT)
+        }
+        .map_err(|busy| busy.to_string())?;
+        let saved = capture::save_capture(&root, env, &built)?;
+        if let Some(commit) = &saved.outcome.commit {
+            guard.note_commit(commit, &saved.path);
+        }
+        Ok::<_, String>(saved)
+    })();
+    let millis = started.elapsed().as_millis();
+    match result {
+        Ok(saved) => {
+            log::info!(
+                "command line answer saved: path={:?} ({millis} ms)",
+                saved.path
+            );
+            events::files_written(app, KbChanged::new("capture", Some(saved.path), None));
+        }
+        Err(error) => log::warn!("command line answer failed ({millis} ms): {error}"),
     }
 }
 

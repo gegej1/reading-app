@@ -14,12 +14,23 @@ import { parseFrontmatter } from "./frontmatter";
 import { queueBody } from "./gate";
 import { buildKbModel } from "./kb";
 import { fixtureKb } from "./__fixtures__";
+import answerCases from "./__fixtures__/answer-cases.json";
 
 const at: LocalTime = { year: 2026, month: 10, day: 12, hour: 14, minute: 3, second: 22, offsetMinutes: 480 };
 const q: AnswerTarget = { kind: "ruling", id: "Q-001" };
 const audit: AnswerTarget = { kind: "audit", report: "2026-10-12-入库报告", itemId: "I-12" };
 
 describe("buildAnswerAt", () => {
+  it("builds the same files as the desktop app's command line (shared cases)", () => {
+    for (const c of answerCases.accept) {
+      const built = buildAnswerAt({ target: { kind: "ruling", id: c.id }, text: c.text, source: c.source as "mac" | "web", at: c.at });
+      expect(built, c.name).toEqual({ path: c.path, content: c.content, message: c.message });
+    }
+    for (const id of answerCases.rejectIds) {
+      expect(() => buildAnswerAt({ target: { kind: "ruling", id }, text: "x", source: "mac", at }), id).toThrow();
+    }
+  });
+
   it("writes an answer to a pending ruling into inbox/裁决/", () => {
     const answer = buildAnswerAt({ target: q, text: "先不取消，改成两周一次。", source: "mac", at });
     expect(answer).toEqual({

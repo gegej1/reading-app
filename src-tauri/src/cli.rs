@@ -3,6 +3,7 @@
 //! ```text
 //! dise --capture "<text>"   save the text as a capture (记一笔) in the inbox
 //! dise --capture=<text>     the same
+//! dise --answer Q-004 "<text>"   answer a pending ruling (a new file in inbox/裁决/)
 //! dise --sync               sync the knowledge base now
 //! dise --ingest             start an AI run: 入库 (work through inbox/)
 //! dise --land-rulings       start an AI run: 落裁决 (work through inbox/裁决/)
@@ -22,6 +23,8 @@ use crate::run::Task;
 pub struct CliRequest {
     /// `--capture`: the text, or why it could not be read.
     pub capture: Option<Result<String, String>>,
+    /// `--answer`: the ruling's id and the answer, or why they could not be read.
+    pub answer: Option<Result<(String, String), String>>,
     /// `--sync`.
     pub sync: bool,
     /// `--ingest` or `--land-rulings`: the run to start, or why none is started.
@@ -38,7 +41,7 @@ impl CliRequest {
     /// True when the command line asked for some work, so the main window
     /// stays closed.
     pub fn has_action(&self) -> bool {
-        self.capture.is_some() || self.sync || self.run.is_some()
+        self.capture.is_some() || self.answer.is_some() || self.sync || self.run.is_some()
     }
 }
 
@@ -68,6 +71,11 @@ where
             );
         } else if let Some(text) = arg.strip_prefix("--capture=") {
             request.capture = Some(Ok(text.to_string()));
+        } else if arg == "--answer" {
+            request.answer = Some(match (args.next(), args.next()) {
+                (Some(id), Some(text)) => Ok((id, text)),
+                _ => Err("--answer 后面要有待裁决的编号和回答，比如 --answer Q-004 \"回答\"".to_string()),
+            });
         } else if arg == "--sync" {
             request.sync = true;
         } else if arg == "--ingest" {
@@ -130,6 +138,23 @@ mod tests {
         let request = parse(["--capture", "--sync"]);
         assert_eq!(request.capture, Some(Ok("--sync".to_string())));
         assert!(!request.sync);
+    }
+
+    #[test]
+    fn reads_an_answer_with_its_ruling() {
+        let request = parse(["--answer", "Q-004", "  先不统一，\n各组自己选。"]);
+        assert_eq!(
+            request.answer,
+            Some(Ok(("Q-004".to_string(), "  先不统一，\n各组自己选。".to_string())))
+        );
+        assert!(request.has_action());
+        for args in [vec!["--answer"], vec!["--answer", "Q-004"]] {
+            let request = parse(args.clone());
+            assert!(
+                matches!(request.answer, Some(Err(ref error)) if error.contains("编号和回答")),
+                "{args:?}"
+            );
+        }
     }
 
     #[test]
