@@ -112,7 +112,7 @@ export function startGateHost(
       await bridge.call("run_gate_report", { runId, attempt, report });
       bridge.log(
         "info",
-        `gate: run ${runId} check ${attempt}: ok=${report.ok} violations=${report.violations.length} warnings=${report.warnings.length} changes=${input.changes.length}`,
+        `gate: run ${runId} check ${attempt}: ok=${report.ok} violations=${report.violations.length} approvals=${report.approvals.length} warnings=${report.warnings.length} changes=${input.changes.length}`,
       );
     } catch (error) {
       // The backend moved on to another check, or was not ready yet: the

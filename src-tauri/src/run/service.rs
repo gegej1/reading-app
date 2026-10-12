@@ -1353,6 +1353,8 @@ impl RunService {
         // looks at the history finds it there.
         let Some((folder, final_record)) = self.with_active(id, |active| {
             active.record.phase = Phase::Finished;
+            // Nothing waits any more; the decision (if any) says what happened.
+            active.record.reason = None;
             active.record.outcome = Some(outcome);
             active.record.message = Some(message.clone());
             active.record.ended_at = Some(record::unix_millis());

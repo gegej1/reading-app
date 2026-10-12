@@ -453,11 +453,12 @@ export function runGate(input: GateInput): GateReport {
   const unit = ingest ? "条随手记" : "份裁决";
   const notes = warnings.length > 0 ? `（另有 ${warnings.length} 条提醒）` : "";
   const asks = `${approvals.length} 处改动需要你确认`;
+  const touches = `${approvals.length} 处改动动到了你的底色或体系`;
   const summary = ok
     ? `通过检查：${deleteQueuePaths.length} ${unit}都逐字进了原料层，提交 ${commitPaths.length} 个文件${notes}`
     : violations.length > 0
       ? `没通过检查：${violations.length} 个问题${approvals.length > 0 ? `，另有 ${asks}` : ""}${notes}`
-      : `需要你确认：${asks}（动到了你的底色或体系），其余都通过了检查${notes}`;
+      : `需要你确认：${touches}，其余都通过了检查${notes}`;
 
   return {
     ok,
@@ -516,7 +517,7 @@ function diseApprovals(before: string | null, after: string | null): GateApprova
         rule: "diseEntry",
         path: DISE_FILE,
         entry: entry.id,
-        message: `改了已有的底色条目 ${named(entry)}：这条还没盖章，但已有条目一律不动，${YOURS}`,
+        message: `改了已有的底色条目 ${named(entry)}：已有条目盖没盖章都一样，${YOURS}`,
         before: entry.text,
         after: match.text,
       });
@@ -528,7 +529,7 @@ function diseApprovals(before: string | null, after: string | null): GateApprova
       rule: "diseDraft",
       path: DISE_FILE,
       entry: entry.id,
-      message: `新加的底色条目 ${named(entry)} 没有标"${DRAFT_MARKER_TEXT}"：不是草稿的新条目要你确认`,
+      message: `新加的底色条目 ${named(entry)}没有标「${DRAFT_MARKER_TEXT}」：不是草稿的新条目要你确认`,
       before: null,
       after: entry.text,
     });
