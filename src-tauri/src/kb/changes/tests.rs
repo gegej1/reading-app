@@ -748,3 +748,80 @@ fn discard_run_discards_nothing_when_the_copy_cannot_be_made() {
     assert!(read(&kb, RAW_NEW).contains("周五做一次周回顾。"));
     assert_eq!(read(&kb, WIKI), "# 小实验\n\n出处：[[2026-10-12-收件箱]]\n");
 }
+
+/// The engine committed some of its files itself and left another one
+/// untracked: the files of the revert commit are the ones git knows.
+fn engine_committed_part_of_its_work(kb: &TempDir) {
+    engine_ran(kb);
+    kb.write("wiki/新页.md", "# 新页，没有提交\n");
+    git(kb.path(), &["add", "--", RAW_NEW, WIKI]);
+    git(kb.path(), &["commit", "-q", "-m", "引擎自己提交的"]);
+}
+
+#[test]
+fn discard_run_takes_back_a_partial_engine_commit_and_leaves_a_clean_index() {
+    let kb = kb("changes-discard-partial");
+    let snap = snapshot(kb.path(), &env(), "inbox").unwrap();
+    engine_committed_part_of_its_work(&kb);
+    let changes = collect(kb.path(), &env(), &snap, &[]).unwrap();
+    assert_eq!(changes.foreign_commits.len(), 1);
+
+    let backup = TempDir::new("changes-discard-partial-backup");
+    let done = discard_run(kb.path(), &env(), &snap, &changes, backup.path(), "撤回")
+        .expect("a file the engine never committed does not stop the discard");
+    assert!(done.revert_commit.is_some());
+    assert_eq!(git(kb.path(), &["diff", "--name-only", &snap.base, "HEAD"]), "");
+    assert_eq!(git(kb.path(), &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(status(&kb), "?? 私人/\n?? 草稿.md");
+    assert!(!kb.path().join("wiki/新页.md").exists());
+    assert_eq!(fs::read_to_string(backup.path().join("wiki/新页.md")).unwrap(), "# 新页，没有提交\n");
+
+    // A second discard finds nothing left to do and leaves everything clean.
+    let commits = commit_count(kb.path());
+    let again = collect(kb.path(), &env(), &snap, &[]).unwrap();
+    assert!(again.files.is_empty());
+    let second = discard_run(kb.path(), &env(), &snap, &again, backup.path(), "撤回").unwrap();
+    assert_eq!(second.revert_commit, None);
+    assert_eq!(commit_count(kb.path()), commits);
+    assert_eq!(git(kb.path(), &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(status(&kb), "?? 私人/\n?? 草稿.md");
+}
+
+#[test]
+fn a_discard_that_git_refuses_leaves_the_run_exactly_as_it_was() {
+    let kb = kb("changes-discard-atomic");
+    let snap = snapshot(kb.path(), &env(), "inbox").unwrap();
+    engine_committed_part_of_its_work(&kb);
+    fs::remove_file(kb.path().join("self/旧的.md")).unwrap();
+    let changes = collect(kb.path(), &env(), &snap, &[]).unwrap();
+    let head = git(kb.path(), &["rev-parse", "HEAD"]);
+    let before = status(&kb);
+    let hook = kb.write(
+        ".git/hooks/pre-commit",
+        "#!/bin/sh\necho 'hook says no' >&2\nexit 1\n",
+    );
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let backup = TempDir::new("changes-discard-atomic-backup");
+    let error =
+        discard_run(kb.path(), &env(), &snap, &changes, backup.path(), "撤回").unwrap_err();
+    assert!(error.contains("hook says no"), "{error}");
+    // Nothing half done: the same commit, nothing staged, every file as the run left it.
+    assert_eq!(git(kb.path(), &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(kb.path(), &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(status(&kb), before);
+    assert_eq!(read(&kb, "wiki/新页.md"), "# 新页，没有提交\n");
+    assert_eq!(read(&kb, "README.md"), "# 说明\n\n没人批准的改动。\n");
+    assert!(read(&kb, RAW_NEW).contains("清单越短越好。"));
+    assert!(!kb.path().join("self/旧的.md").exists());
+    assert_eq!(collect(kb.path(), &env(), &snap, &[]).unwrap(), changes);
+
+    // Once commits work again, the discard goes through.
+    fs::remove_file(&hook).unwrap();
+    let backup = TempDir::new("changes-discard-atomic-backup-2");
+    let done = discard_run(kb.path(), &env(), &snap, &changes, backup.path(), "撤回").unwrap();
+    assert!(done.revert_commit.is_some());
+    assert_eq!(git(kb.path(), &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(status(&kb), "?? 私人/\n?? 草稿.md");
+    assert_eq!(read(&kb, "self/旧的.md"), "# 旧的\n");
+}

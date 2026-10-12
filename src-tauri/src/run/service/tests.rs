@@ -1121,6 +1121,35 @@ fn a_commit_made_by_the_engine_itself_is_a_violation() {
 }
 
 #[test]
+fn an_engine_that_committed_part_of_its_work_is_discarded_completely() {
+    let world = World::new("run-foreign-partial");
+    world.claude(&format!(
+        "{INGEST}mkdir -p wiki/新目录\nprintf '# 没提交的页\\n' > 'wiki/新目录/新页.md'\ngit add raw && git commit -q -m '引擎自己提交的'\n{RESULT}"
+    ));
+    let commits = commit_count(&world.kb);
+    let id = world.start(Task::Ingest);
+    let record = world.undecided(&id);
+    assert_eq!(World::rules(&record), ["engineCommits"]);
+    assert!(world.exists("wiki/新目录/新页.md"));
+
+    world.service.discard(&id).unwrap();
+    let discarded = world.finished(&id);
+    assert_eq!(discarded.outcome, Some(Outcome::Discarded));
+    assert_eq!(commit_count(&world.kb), commits + 2);
+    assert_eq!(world.head_subject(), "撤回：AI 自己做的提交（入库）");
+    assert_eq!(git(&world.kb, &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+    assert!(!world.exists(RAW_NEW) && !world.exists("wiki/新目录"));
+
+    // A second discard is refused and leaves everything as it is.
+    let again = world.service.discard(&id).unwrap_err();
+    assert!(again.contains("没有这次运行") || again.contains("不在等待"), "{again}");
+    assert_eq!(commit_count(&world.kb), commits + 2);
+    assert_eq!(git(&world.kb, &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+}
+
+#[test]
 fn a_change_to_a_file_git_never_knew_is_a_violation_and_is_left_alone() {
     let world = World::new("run-untracked");
     world.claude(&format!("{INGEST}printf '被 AI 改了\\n' > '草稿.md'\n{RESULT}"));

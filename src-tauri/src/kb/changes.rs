@@ -882,7 +882,13 @@ fn back_up(root: &Path, rel: &str, backup_dir: &Path) -> Result<(), String> {
 /// are never touched, and neither are captures made meanwhile.
 ///
 /// If the engine made commits of its own, history is not rewritten: one more
-/// commit takes their changes back.
+/// commit takes their changes back. It only names the paths git knows (in
+/// HEAD or in the index): a file the engine created but never committed is
+/// simply deleted.
+///
+/// All or nothing: when any step fails, the working tree, the index and HEAD
+/// are put back to what the run left (from the copies), so the discard can
+/// simply be tried again.
 pub fn discard_run(
     root: &Path,
     env: &ChildEnv,
@@ -897,8 +903,47 @@ pub fn discard_run(
     for file in &changes.files {
         back_up(root, &file.path, backup_dir)?;
     }
-
     let git = Git { root, env };
+    let head = git.read(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+    match apply_discard(root, &git, snapshot, changes, revert_message) {
+        Ok(done) => Ok(done),
+        Err(error) => match undo_discard(root, &git, changes, backup_dir, &head) {
+            Ok(()) => Err(error),
+            Err(problem) => {
+                log::error!("run discard: could not put the run back after a failure: {problem}");
+                Err(format!(
+                    "{error}。而且没能把文件完全放回原样（{problem}），改动的副本在 {}",
+                    backup_dir.display()
+                ))
+            }
+        },
+    }
+}
+
+/// The paths among `paths` that git knows: in HEAD or in the index.
+fn known_to_git<'a>(git: &Git, paths: &[&'a str]) -> Result<Vec<&'a str>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut known: BTreeSet<String> = git
+        .paths(&["ls-files", "-z"])?
+        .into_iter()
+        .collect();
+    known.extend(git.paths(&["ls-tree", "-r", "--name-only", "-z", "HEAD"])?);
+    Ok(paths
+        .iter()
+        .copied()
+        .filter(|path| known.contains(*path))
+        .collect())
+}
+
+fn apply_discard(
+    root: &Path,
+    git: &Git,
+    snapshot: &Snapshot,
+    changes: &Changes,
+    revert_message: &str,
+) -> Result<Discarded, String> {
     let of = |origin: Origin| -> Vec<&str> {
         changes
             .files
@@ -953,17 +998,25 @@ pub fn discard_run(
     remove_new_empty_dirs(root, snapshot, &created);
 
     // Commits the engine made itself: one commit takes their changes back.
+    let touched: Vec<&str> = from_snapshot.iter().chain(created.iter()).copied().collect();
+    let known = known_to_git(git, &touched)?;
+    let staged_in = |paths: &[&str]| {
+        let mut args = vec!["diff", "--cached", "--quiet", "--no-ext-diff", "--"];
+        args.extend(paths.iter().copied());
+        !git.succeeds(&args)
+    };
     let mut revert_commit = None;
-    if !changes.foreign_commits.is_empty() {
-        let touched: Vec<&str> = from_snapshot.iter().chain(created.iter()).copied().collect();
-        let mut staged = vec!["diff", "--cached", "--quiet", "--no-ext-diff", "--"];
-        staged.extend(touched.iter().copied());
-        if !touched.is_empty() && !git.succeeds(&staged) {
-            let mut args = vec!["commit", "--quiet", "-m", revert_message, "--"];
-            args.extend(touched.iter().copied());
-            git.write(&args)?;
-            revert_commit = Some(git.read(&["rev-parse", "HEAD"])?);
-        }
+    if !changes.foreign_commits.is_empty() && !known.is_empty() && staged_in(&known) {
+        let mut args = vec!["commit", "--quiet", "-m", revert_message, "--"];
+        args.extend(known.iter().copied());
+        git.write(&args)?;
+        revert_commit = Some(git.read(&["rev-parse", "HEAD"])?);
+    }
+    // Nothing of the discard may stay staged without being committed.
+    let all: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    let known_all = known_to_git(git, &all)?;
+    if !known_all.is_empty() && staged_in(&known_all) {
+        return Err("丢弃没有做完：还有改动停在暂存区里，没有提交".to_string());
     }
 
     Ok(Discarded {
@@ -971,6 +1024,65 @@ pub fn discard_run(
         removed,
         revert_commit,
     })
+}
+
+/// Puts back what the run left after a discard failed halfway: HEAD as it
+/// was, the index of the run's paths as in HEAD, and every file from its copy
+/// (a file that had no copy did not exist).
+fn undo_discard(
+    root: &Path,
+    git: &Git,
+    changes: &Changes,
+    backup_dir: &Path,
+    head: &str,
+) -> Result<(), String> {
+    let mut problems = Vec::new();
+    let now = git.read(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+    if now != head {
+        if let Err(error) = git.write(&["reset", "--quiet", "--soft", head]) {
+            problems.push(error);
+        }
+    }
+    let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    for chunk in paths.chunks(200) {
+        let mut args = vec!["reset", "--quiet", head, "--"];
+        args.extend(chunk.iter().copied());
+        if let Err(error) = git.write(&args) {
+            problems.push(error);
+        }
+    }
+    for file in &changes.files {
+        let target = root.join(&file.path);
+        let copy = backup_dir.join(&file.path);
+        let mut link = copy.clone().into_os_string();
+        link.push(".symlink");
+        let link = PathBuf::from(link);
+        let put_back = || -> io::Result<()> {
+            if fs::symlink_metadata(&target).is_ok_and(|meta| !meta.is_dir()) {
+                fs::remove_file(&target)?;
+            }
+            if copy.is_file() || link.is_file() {
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+            if copy.is_file() {
+                fs::copy(&copy, &target).map(|_| ())
+            } else if link.is_file() {
+                std::os::unix::fs::symlink(fs::read_to_string(&link)?, &target)
+            } else {
+                Ok(())
+            }
+        };
+        if let Err(error) = put_back() {
+            problems.push(format!("{}：{error}", file.path));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("；"))
+    }
 }
 
 /// Removes the folders of `created` files that are empty now and were not
