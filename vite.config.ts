@@ -53,7 +53,7 @@ export default defineConfig(async ({ command, mode }) => {
     },
     test: {
       // Only look inside src/ and dev/ so Vitest never walks src-tauri/target or build output.
-      include: ["src/**/*.test.{ts,tsx}", "dev/**/*.test.ts"],
+      include: ["src/**/*.test.{ts,tsx}", "dev/**/*.test.ts", "scripts/**/*.test.mjs"],
     },
   };
 });

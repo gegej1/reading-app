@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit",
     "icon": "node scripts/build-icon.mjs",
     "icon:tray": "node scripts/build-tray-icon.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "guide": "DISE_UPDATE_GUIDE=1 vitest run src/export/guide.test.ts",
+    "shortcuts": "node scripts/build-shortcuts.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.3",

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="color-scheme" content="light dark"/><meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data:; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"/><title>底色 · 在 iPhone 上用底色</title><style>:root {
+  color-scheme: light dark;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  --font-num: "Iowan Old Style", "Palatino", Georgia, "Songti SC", serif;
+  --paper: #f3ede1;
+  --paper-raised: #fbf8f1;
+  --paper-sunk: #e9e1d0;
+  --paper-edge: #ddd2bd;
+  --ink: #27221c;
+  --ink-soft: #564d42;
+  --ink-faint: #877c6c;
+  --rule: rgba(39, 34, 28, 0.12);
+  --seal: #b13a27;
+  --seal-ink: #fbf3e6;
+  --seal-wash: rgba(177, 58, 39, 0.08);
+  --seal-line: rgba(177, 58, 39, 0.3);
+  --ochre: #94651f;
+  --ochre-wash: rgba(148, 101, 31, 0.11);
+  --azurite: #2c5672;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(39, 34, 28, 0.05), 0 10px 24px -16px rgba(39, 34, 28, 0.3);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b1915;
+    --paper-raised: #24211c;
+    --paper-sunk: #151310;
+    --paper-edge: #35302a;
+    --ink: #ebe3d3;
+    --ink-soft: #c0b5a3;
+    --ink-faint: #8f8574;
+    --rule: rgba(235, 227, 211, 0.1);
+    --seal: #d65f48;
+    --seal-ink: #fff4ea;
+    --seal-wash: rgba(214, 95, 72, 0.11);
+    --seal-line: rgba(214, 95, 72, 0.34);
+    --ochre: #d2a25b;
+    --ochre-wash: rgba(210, 162, 91, 0.12);
+    --azurite: #93bcd6;
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 12px 28px -16px rgba(0, 0, 0, 0.7);
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font: 16px/1.75 var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: lining-nums;
+  overflow-wrap: anywhere;
+}
+a { color: var(--azurite); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+h1, h2, h3, h4, p { margin: 0; }
+.num { font-family: var(--font-num); letter-spacing: 0.02em; }
+.wrap {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-left)) 40px max(16px, env(safe-area-inset-right));
+}
+
+/* The masthead: a seal and the pages. */
+.mast {
+  padding: max(14px, env(safe-area-inset-top)) 0 10px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 22px;
+}
+.mast__row { display: flex; align-items: center; gap: 12px; }
+.seal {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  font: 700 14px/1.05 var(--font-serif);
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--seal), inset 0 0 0 3px rgba(251, 243, 230, 0.75);
+  text-decoration: none;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.05em;
+}
+.mast__title { font: 600 15px/1.3 var(--font-serif); letter-spacing: 0.12em; color: var(--ink-soft); }
+.mast__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.mast__nav a {
+  flex: none;
+  padding: 3px 11px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  border: 1px solid var(--paper-edge);
+  border-radius: 999px;
+  background: var(--paper-raised);
+}
+.mast__nav a[aria-current="page"] { color: var(--seal-ink); background: var(--seal); border-color: var(--seal); }
+
+/* Page heads. */
+.eyebrow { font-size: 12.5px; letter-spacing: 0.2em; color: var(--ink-faint); }
+.title { margin-top: 2px; font: 700 26px/1.35 var(--font-serif); letter-spacing: 0.06em; }
+.meta { margin-top: 6px; font-size: 13.5px; color: var(--ink-faint); }
+.lede { margin: 14px 0 0; font-size: 15px; color: var(--ink-soft); }
+.head { margin-bottom: 22px; }
+
+/* Cards (entries, precedents, rulings, audit items). */
+.card {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 16px 16px 12px;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  scroll-margin-top: 16px;
+}
+.card.is-confirmed { border-color: color-mix(in srgb, var(--seal) 26%, var(--paper-edge)); }
+.card.is-draft {
+  background: repeating-linear-gradient(-45deg, transparent 0 9px, var(--ochre-wash) 9px 10px), var(--paper);
+  border: 1px dashed color-mix(in srgb, var(--ochre) 55%, transparent);
+  box-shadow: none;
+}
+.card:target { box-shadow: 0 0 0 3px var(--seal-wash), var(--shadow); border-color: var(--seal-line); }
+.card__head { display: flex; align-items: baseline; gap: 10px; }
+.card__id { flex: none; font: 15px/1.4 var(--font-num); letter-spacing: 0.06em; color: var(--ink-faint); }
+.card.is-confirmed .card__id { color: var(--seal); }
+.card.is-draft .card__id { color: var(--ochre); }
+.card__title { font: 600 17px/1.45 var(--font-ui); letter-spacing: 0.02em; }
+.card.is-draft .card__title { color: var(--ink-soft); }
+.card__mark { margin-left: auto; flex: none; }
+.stamp {
+  display: inline-block;
+  padding: 1px 6px;
+  font: 700 12.5px/1.5 var(--font-serif);
+  letter-spacing: 0.15em;
+  color: var(--seal);
+  border: 1.5px solid var(--seal);
+  border-radius: 3px;
+  transform: rotate(-4deg);
+}
+.badge {
+  display: inline-block;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--ochre);
+  border: 1px dashed color-mix(in srgb, var(--ochre) 60%, transparent);
+  border-radius: 3px;
+  background: var(--ochre-wash);
+}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip {
+  font-size: 12.5px;
+  line-height: 1.8;
+  padding: 0 8px;
+  color: var(--ink-soft);
+  background: var(--paper-sunk);
+  border-radius: 999px;
+}
+.chip.is-high { color: var(--seal-ink); background: var(--seal); }
+.quote {
+  margin: 12px 0 8px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--seal-line);
+  font: 18px/1.85 var(--font-serif);
+  letter-spacing: 0.03em;
+}
+.card.is-draft .quote { border-left-style: dashed; border-left-color: color-mix(in srgb, var(--ochre) 60%, transparent); }
+.quote p { margin: 0.15em 0; }
+.small { font-size: 14px; color: var(--ink-soft); }
+
+/* Sections of the 底色. */
+.section { margin-top: 30px; }
+.section__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.section__ordinal {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  font: 700 16px/1 var(--font-serif);
+  color: var(--seal-ink);
+  background: var(--seal);
+  border-radius: 3px;
+}
+.section__title { font: 700 19px/1.3 var(--font-serif); letter-spacing: 0.08em; }
+.section__count { margin-left: auto; font-size: 12.5px; color: var(--ink-faint); }
+
+/* Markdown. */
+.prose { font-size: 15px; line-height: 1.8; }
+.prose > * + * { margin-top: 0.6em; }
+.prose h2, .prose h3, .prose h4 { font: 700 16px/1.5 var(--font-serif); letter-spacing: 0.06em; margin-top: 1.1em; }
+.prose h2 { padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+.prose ul, .prose ol { padding-left: 1.3em; margin-bottom: 0; }
+.prose li + li { margin-top: 0.2em; }
+.prose blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--seal-line);
+  font-family: var(--font-serif);
+  color: var(--ink-soft);
+}
+.prose code { font: 0.88em ui-monospace, Menlo, monospace; padding: 0 3px; background: var(--paper-sunk); border-radius: 3px; }
+.prose pre { overflow-x: auto; padding: 10px; background: var(--paper-sunk); border-radius: 4px; }
+.prose pre code { padding: 0; background: none; }
+.prose table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 14px; }
+.prose th, .prose td { padding: 4px 8px; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.prose hr { border: 0; border-top: 1px solid var(--rule); }
+.prose input[type="checkbox"] { margin: 0 6px 0 0; accent-color: var(--seal); vertical-align: -1px; }
+.prose .contains-task-list { padding-left: 0; }
+.prose .task-list-item { list-style: none; }
+.plain { color: inherit; }
+
+/* 今日. */
+.today__date { font: 700 40px/1.15 var(--font-serif); letter-spacing: 0.08em; }
+.today__entry { margin-top: 18px; }
+.counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.count {
+  display: block;
+  padding: 12px 10px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-radius: 6px;
+}
+.count__n { display: block; font: 30px/1.1 var(--font-num); color: var(--seal); }
+.count__label { display: block; margin-top: 4px; font-size: 13px; color: var(--ink-soft); }
+.count__sub { display: block; font-size: 12px; color: var(--ink-faint); }
+.links { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--rule); }
+.links li { border-bottom: 1px solid var(--rule); }
+.links a { display: flex; justify-content: space-between; gap: 12px; padding: 12px 2px; color: var(--ink); text-decoration: none; }
+.links span { color: var(--ink-faint); font-size: 14px; }
+
+/* Notes and boxes. */
+.box {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  font-size: 14.5px;
+  background: var(--seal-wash);
+  border: 1px solid var(--seal-line);
+  border-radius: 6px;
+}
+.box h2 { font: 700 15px/1.5 var(--font-serif); letter-spacing: 0.08em; color: var(--seal); margin-bottom: 4px; }
+.box ol { margin: 6px 0 0; padding-left: 1.3em; }
+.empty { padding: 28px 0; text-align: center; color: var(--ink-faint); font-family: var(--font-serif); }
+.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.toc a { font-size: 13px; padding: 1px 9px; border: 1px solid var(--paper-edge); border-radius: 999px; text-decoration: none; color: var(--ink-soft); background: var(--paper-raised); }
+.audit__parts { margin-top: 6px; font-size: 14.5px; }
+.audit__parts dt { float: left; clear: left; width: 3.2em; color: var(--ink-faint); }
+.audit__parts dd { margin: 0 0 4px 3.4em; }
+.foot { margin-top: 34px; padding-top: 12px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink-faint); text-align: center; }</style></head><body><div class="wrap"><header class="mast"><div class="mast__row"><span class="seal">底色</span><span class="mast__title">使用说明</span></div></header><main><header class="head"><p class="eyebrow">iPhone</p><h1 class="title">在 iPhone 上用底色</h1><p class="meta">只用「快捷指令」和「文件」两个自带的 App</p></header><article class="card"><div class="prose"><h3>这是什么</h3>
+<p>iPhone 和 Mac 只通过 iCloud 云盘见面，手机上不用 VPN、不用 GitHub、不用装别的 App，只用自带的「快捷指令」和「文件」。</p>
+<ul>
+<li>手机上记的一笔、对待裁决的回答，存成文本文件放进 iCloud；Mac 上的底色看到后收进知识库，提交成功后再把 iCloud 里的文件删掉。</li>
+<li>Mac 上的底色把「底色层」（底色、判例、待裁决、待抽查、最近一次入库）做成适合手机看的页面，放进 iCloud 给手机读。原料、知识页、体系、收件箱和日志都不会离开 Mac。</li>
+</ul>
+<p>文件夹在「文件」App 里：iCloud 云盘 › 快捷指令 › 底色。</p>
+<ul>
+<li><code>收件/记一笔/</code>：手机写给 Mac 的随手记</li>
+<li><code>收件/回答/</code>：手机写给 Mac 的回答</li>
+<li><code>阅读/</code>：Mac 放给手机看的页面和文字</li>
+<li><code>快捷指令/</code>：三个快捷指令和这份说明</li>
+</ul>
+<p>Mac 上的底色要开着（菜单栏里有它就行），手机上记的东西一般在 iCloud 同步过来后半分钟内收进知识库。</p>
+<h3>装上三个快捷指令</h3>
+<ol>
+<li>在 iPhone 上打开「文件」App，进入 iCloud 云盘 › 快捷指令 › 底色 › 快捷指令。</li>
+<li>依次点「记一笔」「看底色」「答裁决」三个文件，在弹出的页面里点「添加快捷指令」。</li>
+<li>第一次运行时，快捷指令会问能不能访问文件，选「允许」。</li>
+</ol>
+<p>想更快：在主屏幕上长按空白处添加「快捷指令」小组件，或者在「设置 › 操作按钮」里把「记一笔」设成操作按钮。</p>
+<p>如果这三个文件打不开或者没有出现，可以照下面「手动建」的步骤自己建，每个只要几步。</p>
+<h3>怎么用</h3>
+<ul>
+<li><strong>记一笔</strong>：在任何 App 里选中文字或网页，点「共享」，选「记一笔」；或者直接运行它，打字或按键盘上的麦克风说话。看到「已记下」就好了。</li>
+<li><strong>看底色</strong>：运行后选「今日一条」直接看今天的一条；选「整张底色」「待裁决」「待抽查」「判例」「最近入库」打开对应的页面。</li>
+<li><strong>答裁决</strong>：运行后从列表里选一个问题，先看问题和 AI 的建议，再打字或说出你的回答。回答会原样交给 Mac 上的底色，进裁决收件箱，等下次落裁决。</li>
+</ul>
+<p>也可以在「文件」App 里直接点开 <code>阅读/</code> 里的页面。有些预览里点页面之间的链接没反应，这时回到文件夹里点另一个页面就行。</p>
+<h3>手动建「记一笔」</h3>
+<ol>
+<li>打开「快捷指令」，点右上角「＋」，名字写「记一笔」。</li>
+<li>点底部的「ⓘ」，打开「在共享表单中显示」；把「如果没有输入」设成「请求输入」，类型选「文本」。</li>
+<li>添加「从输入中获取文本」，输入选「快捷指令输入」。</li>
+<li>添加「格式化日期」：日期选「当前日期」，格式选「自定义」，格式字符串填 <code>yyyy-MM-dd&#x27;T&#x27;HH-mm-ss</code>。</li>
+<li>添加「设定名称」：把上一步得到的「文本」的名称设为「格式化的日期」后面接着打 <code>.txt</code>。</li>
+<li>添加「存储文件」：关掉「询问存储位置」，路径填 <code>/底色/收件/记一笔/</code>，关掉「覆盖」。</li>
+<li>添加「显示结果」，写「已记下」。</li>
+</ol>
+<h3>手动建「看底色」</h3>
+<ol>
+<li>新建快捷指令「看底色」，添加「从菜单中选取」，选项写：今日一条、整张底色、待裁决、待抽查。</li>
+<li>「今日一条」下面：添加「获取文件」，关掉「显示文稿选择器」，路径填 <code>底色/阅读/今日一条.txt</code>；再添加「显示结果」。</li>
+<li>「整张底色」下面：添加「获取文件」，关掉「显示文稿选择器」，路径填 <code>底色/阅读/底色.html</code>；再添加「快速查看」。</li>
+<li>「待裁决」「待抽查」照第 3 步，路径分别是 <code>底色/阅读/待裁决.html</code> 和 <code>底色/阅读/待抽查.html</code>。</li>
+</ol>
+<h3>手动建「答裁决」</h3>
+<ol>
+<li>新建快捷指令「答裁决」，添加「获取文件」，关掉「显示文稿选择器」，路径填 <code>底色/阅读/待裁决列表.txt</code>。</li>
+<li>添加「拆分文本」，按「换行符」拆分。</li>
+<li>添加「从列表中选取」，提示写「回答哪一个？」。</li>
+<li>添加「匹配文本」，正则写 <code>Q-[0-9]+</code>，文本选「所选项目」。</li>
+<li>添加「从列表中获取项目」，取「第一项」。这就是问题的编号。</li>
+<li>添加「获取文件」，关掉「显示文稿选择器」，路径填 <code>底色/阅读/待裁决/</code>，接着插入上一步的「列表中的项目」，再打 <code>.txt</code>；然后添加「显示结果」。</li>
+<li>添加「请求输入」，类型「文本」，提示写「你怎么定？」。</li>
+<li>添加「格式化日期」，和「记一笔」第 4 步一样。</li>
+<li>添加「设定名称」：把「提供的输入」的名称设为编号（「列表中的项目」）、一个 <code>-</code>、「格式化的日期」，最后打 <code>.txt</code>。文件名一定要用编号开头，比如 <code>Q-001-2026-10-12T09-30-00.txt</code>。</li>
+<li>添加「存储文件」：关掉「询问存储位置」，路径填 <code>/底色/收件/回答/</code>，关掉「覆盖」。</li>
+<li>添加「显示结果」，写「已交上」。</li>
+</ol>
+<h3>要知道的</h3>
+<ul>
+<li>回答的文件名里没有编号，或者那个问题已经裁决了、不存在，回答不会丢：它会作为一条随手记收进收件箱，第一行写明原本是给哪个问题的。</li>
+<li>手机上的文件只在 Mac 上提交成功后才删除；没删掉的也不会被收两次。</li>
+<li>在「设置 › iPhone」里可以关掉这个功能，也能看到文件夹的位置和最近一次收到了什么。</li>
+</ul></div></article></main><footer class="foot">这份说明由 Mac 上的「底色」放在这里</footer></div></body></html>
