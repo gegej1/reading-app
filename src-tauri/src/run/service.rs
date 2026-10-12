@@ -46,8 +46,8 @@ use super::gate::{self, GateInput, GateIssue, GateReport, RunFacts};
 use super::process::{self, Control, Exit};
 use super::prompt;
 use super::record::{
-    self, EngineReport, EventLog, Outcome, Phase, RunRecord, SavedSnapshot, DISCARDED_DIR,
-    EVENTS_FILE, FINAL_MESSAGE_FILE, KEEP_RUNS, STDERR_FILE, STEPS_FILE,
+    self, Decision, EngineReport, EventLog, Outcome, Phase, Reason, RunRecord, SavedSnapshot,
+    DISCARDED_DIR, EVENTS_FILE, FINAL_MESSAGE_FILE, KEEP_RUNS, STDERR_FILE, STEPS_FILE,
 };
 use super::settings::{self, Overrides, RunSettings};
 use super::stream::{Step, StepKind, StreamParser, StreamSummary};
@@ -240,7 +240,7 @@ impl Active {
         let task = self.record.task.label();
         match self.record.phase {
             Phase::NeedsDecision => {
-                format!("上一次{task}的结果还在等你处理（丢弃或者保留），处理完才能开始新的")
+                format!("上一次{task}的结果还在等你处理，处理完才能开始新的")
             }
             _ => format!("正在{task}，等它结束再开始新的"),
         }
@@ -316,6 +316,11 @@ pub fn commit_message(task: Task, engine: EngineKind, count: usize, kept: bool) 
         task.unit(),
         engine.label()
     )
+}
+
+/// The summary of a report that only waits for the user's approval.
+fn approval_summary(count: usize) -> String {
+    format!("需要你确认：{count} 处改动动到了你的底色或体系，其余都通过了检查")
 }
 
 /// Where the engines keep the user's settings: Claude Code's `settings.json`
@@ -395,6 +400,19 @@ fn engine_failure(
         return Some(format!("AI 没有正常退出（{code}）"));
     }
     None
+}
+
+/// Writes every capture committed beside the run into the run's folder the
+/// moment it is noted, so a restart still knows it is not the run's (a
+/// discard would otherwise delete it).
+fn write_down_captures(job: &KbJob, folder: &std::path::Path, id: &str) {
+    let folder = folder.to_path_buf();
+    let id = id.to_string();
+    job.on_commit(move |noted| {
+        if let Err(error) = record::append_beside(&folder, noted) {
+            log::error!("run {id}: could not write down a capture made beside the run: {error}");
+        }
+    });
 }
 
 /// What a sync that did not end well is called in a refusal.
@@ -701,6 +719,7 @@ impl RunService {
             .lock
             .start_job(task.label(), wait)
             .map_err(|busy| Stop::refused(busy.to_string()))?;
+        write_down_captures(&job, &folder, id);
         let env = self.env();
         let snapshot = {
             let _guard = self
@@ -1096,9 +1115,24 @@ impl RunService {
                 });
             }
         }
-        if report.ok && !report.violations.is_empty() {
+        // The user's own layer: systems/ always waits for them.
+        for item in gate::own_approvals(changes, &context.snapshot) {
+            if !report.approvals.iter().any(|found| found.path == item.path) {
+                log::warn!(
+                    "run {id}: the app's own check asks what the gate did not: {}",
+                    item.message
+                );
+                report.approvals.push(item);
+            }
+        }
+        let ok = report.violations.is_empty() && report.approvals.is_empty();
+        if report.ok && !ok {
             report.ok = false;
-            report.summary = format!("没通过检查：{} 个问题", report.violations.len());
+            report.summary = if report.violations.is_empty() {
+                approval_summary(report.approvals.len())
+            } else {
+                format!("没通过检查：{} 个问题", report.violations.len())
+            };
         }
         for warning in &report.warnings {
             log::info!("run {id}: gate warning: {}", warning.message);
@@ -1109,19 +1143,66 @@ impl RunService {
             self.needs_decision(id, Some(report), message);
             return Checked::Settled;
         }
-        match self.try_commit(id, context, changes, &report, false) {
+        self.commit_checked(id, context, changes, report, None)
+    }
+
+    /// Commits a run whose report has no violations (it passed, or the user
+    /// agreed to what it asked), and finishes it.
+    fn commit_checked(
+        &self,
+        id: &str,
+        context: &Context,
+        changes: &Changes,
+        report: GateReport,
+        decision: Option<Decision>,
+    ) -> Checked {
+        match self.try_commit(id, context, changes, &report, decision) {
             Ok(commit) => {
-                let message = format!("{}，已提交 {}", report.summary, short(&commit));
-                self.with_active(id, |active| active.record.gate = Some(report));
+                let message = match decision {
+                    Some(Decision::Approved) => format!(
+                        "你确认了 {} 处改动，已提交 {}",
+                        report.approvals.len(),
+                        short(&commit)
+                    ),
+                    _ => format!("{}，已提交 {}", report.summary, short(&commit)),
+                };
                 self.finish(id, Outcome::Committed, message, Some(commit));
                 Checked::Settled
             }
             Err(CommitError::Moved) => Checked::Again,
             Err(CommitError::Failed(error)) => {
-                self.needs_decision(id, Some(report), format!("检查通过了，但提交失败：{error}"));
+                self.commit_failed(id, &error);
                 Checked::Settled
             }
         }
+    }
+
+    /// The check passed (or the user agreed), but git did not take the
+    /// commit: the run waits for another try, nothing is lost.
+    fn commit_failed(&self, id: &str, error: &str) {
+        let message = format!("检查已经通过，但提交没有成功：{error}。改动原样留着，可以重试提交");
+        let found = self.with_active(id, |active| {
+            active.record.phase = Phase::NeedsDecision;
+            active.record.reason = Some(Reason::CommitFailed);
+            active.record.message = Some(message.clone());
+            if let Some(job) = &active.job {
+                job.set_operation(&format!("等你处理{}的结果", active.record.task.label()));
+            }
+        });
+        if found.is_none() {
+            return;
+        }
+        log::warn!("run {id}: the commit failed after the check passed: {error}");
+        self.step(
+            id,
+            Step {
+                kind: StepKind::Error,
+                verb: None,
+                target: None,
+                text: Some(message),
+            },
+        );
+        self.publish();
     }
 
     /// Makes the run's commit, after making sure the working tree is still
@@ -1132,11 +1213,14 @@ impl RunService {
         context: &Context,
         checked: &Changes,
         report: &GateReport,
-        kept: bool,
+        decision: Option<Decision>,
     ) -> Result<String, CommitError> {
+        let kept = decision == Some(Decision::KeptDespiteViolations);
         self.with_active(id, |active| {
             active.record.phase = Phase::Committing;
             active.record.message = Some("正在提交".to_string());
+            active.record.gate = Some(report.clone());
+            active.record.decision = decision;
         });
         self.publish();
         let failed = CommitError::Failed;
@@ -1157,7 +1241,19 @@ impl RunService {
             report.delete_queue_paths.len(),
             kept,
         );
-        changes::commit_run(
+        // Written down before the commit exists: if the app goes away right
+        // after it, the next start recognises the commit by this message.
+        let noted = self.with_active(id, |active| {
+            active.record.commit_message = Some(message.clone());
+            active.record.commit = None;
+            (active.folder.clone(), active.record.clone())
+        });
+        if let Some((folder, record)) = noted {
+            record::save(&folder, &record).map_err(|error| {
+                failed(format!("没能先把提交信息记进运行记录（{error}），所以没有提交"))
+            })?;
+        }
+        let commit = changes::commit_run(
             &context.root,
             env,
             &context.snapshot,
@@ -1168,35 +1264,81 @@ impl RunService {
                 message: &message,
             },
         )
-        .map_err(failed)
+        .map_err(failed)?;
+        let noted = self.with_active(id, |active| {
+            active.record.commit = Some(commit.clone());
+            (active.folder.clone(), active.record.clone())
+        });
+        if let Some((folder, record)) = noted {
+            if let Err(error) = record::save(&folder, &record) {
+                log::warn!("run {id}: could not write the commit into run.json: {error}");
+            }
+        }
+        Ok(commit)
     }
 
     /// Leaves the run's changes where they are and waits for a person. The
     /// job stays, so no sync or edit can pick the changes up.
     fn needs_decision(&self, id: &str, report: Option<GateReport>, message: String) {
+        let reason = match &report {
+            None => Reason::Incomplete,
+            Some(report) if !report.violations.is_empty() => Reason::Violations,
+            Some(_) => Reason::NeedsApproval,
+        };
         let found = self.with_active(id, |active| {
             active.record.phase = Phase::NeedsDecision;
+            active.record.reason = Some(reason);
+            active.record.decision = None;
             active.record.gate = report;
             active.record.message = Some(message.clone());
             if let Some(job) = &active.job {
-                job.set_operation(&format!("等你处理{}的结果", active.record.task.label()));
+                let what = if reason == Reason::NeedsApproval {
+                    "等你确认"
+                } else {
+                    "等你处理"
+                };
+                job.set_operation(&format!("{what}{}的结果", active.record.task.label()));
             }
-            active
-                .record
-                .gate
-                .as_ref()
-                .map(|report| report.violations.clone())
-                .unwrap_or_default()
+            active.record.gate.clone().unwrap_or_else(|| GateReport {
+                ok: false,
+                violations: Vec::new(),
+                warnings: Vec::new(),
+                approvals: Vec::new(),
+                commit_paths: Vec::new(),
+                delete_queue_paths: Vec::new(),
+                restore_queue_paths: Vec::new(),
+                summary: String::new(),
+                final_line: None,
+            })
         });
-        let Some(violations) = found else { return };
-        log::warn!("run {id}: waiting for a decision: {message}");
-        for violation in &violations {
+        let Some(report) = found else { return };
+        if reason == Reason::NeedsApproval {
+            log::warn!(
+                "run {id}: waiting for your confirmation: {} changes to the 底色 or systems/ (open the app: 确认并提交 or 丢弃)",
+                report.approvals.len()
+            );
+        } else {
+            log::warn!("run {id}: waiting for a decision: {message}");
+        }
+        for violation in &report.violations {
             log::warn!("run {id}: violation [{}] {}", violation.rule, violation.message);
+        }
+        for item in &report.approvals {
+            log::warn!(
+                "run {id}: needs confirmation [{}] {}{}",
+                item.rule,
+                item.path,
+                item.entry.as_deref().map(|entry| format!(" {entry}")).unwrap_or_default()
+            );
         }
         self.step(
             id,
             Step {
-                kind: StepKind::Error,
+                kind: if reason == Reason::NeedsApproval {
+                    StepKind::Note
+                } else {
+                    StepKind::Error
+                },
                 verb: None,
                 target: None,
                 text: Some(message),
@@ -1289,11 +1431,32 @@ impl RunService {
     /// Moves the run `id` from "waiting for a decision" to "being worked on"
     /// and returns what the work needs.
     fn begin_decision(&self, id: &str, what: &str) -> Result<Context, String> {
+        self.begin_decision_for(id, what, None)
+    }
+
+    /// Like [`Self::begin_decision`], only while the run waits for one of `reasons`.
+    fn begin_decision_for(
+        &self,
+        id: &str,
+        what: &str,
+        reasons: Option<&[Reason]>,
+    ) -> Result<Context, String> {
         let taken = self.with_active(id, |active| {
             if active.record.phase != Phase::NeedsDecision {
                 return Err(format!("现在不能{what}：这次运行不在等待处理"));
             }
+            let reason = active.record.reason.unwrap_or(Reason::Violations);
+            if reasons.is_some_and(|reasons| !reasons.contains(&reason)) {
+                return Err(match reason {
+                    Reason::NeedsApproval => format!("现在不能{what}：这次的结果在等你确认"),
+                    Reason::CommitFailed => format!("现在不能{what}：检查已经通过，只是提交没有成功，请重试提交"),
+                    Reason::Violations => format!("现在不能{what}：这次的结果没通过检查"),
+                    Reason::Incomplete => format!("现在不能{what}：这次的检查还没有完成，先重新检查"),
+                });
+            }
             active.record.phase = Phase::Committing;
+            // Only a commit that is being made has a message written down.
+            active.record.commit_message = None;
             Ok(())
         });
         match taken {
@@ -1307,7 +1470,13 @@ impl RunService {
 
     /// Back to waiting, after a decision could not be carried out.
     fn back_to_decision(&self, id: &str, error: &str) {
-        self.with_active(id, |active| active.record.phase = Phase::NeedsDecision);
+        self.with_active(id, |active| {
+            active.record.phase = Phase::NeedsDecision;
+            active.record.commit_message = None;
+            if active.record.reason != Some(Reason::CommitFailed) {
+                active.record.decision = None;
+            }
+        });
         log::warn!("run {id}: {error}");
         self.publish();
     }
@@ -1358,18 +1527,26 @@ impl RunService {
         }
     }
 
+    /// The gate's report and the changes it was about, for a decision.
+    fn checked(&self, id: &str) -> Option<(GateReport, Changes)> {
+        self.with_active(id, |active| {
+            Some((active.record.gate.clone()?, active.changes.clone()?))
+        })
+        .flatten()
+    }
+
     /// Commits the result of the run `id` although the check did not pass.
     /// Only ever on an explicit request; what was overruled is recorded.
     pub fn keep(&self, id: &str) -> Result<RunStatus, String> {
-        let context = self.begin_decision(id, "保留")?;
-        let checked = self.with_active(id, |active| {
-            (active.record.gate.clone(), active.changes.clone())
-        });
-        let Some((Some(report), Some(changes))) = checked else {
+        let context = self.begin_decision_for(id, "保留", Some(&[Reason::Violations]))?;
+        let Some((report, changes)) = self
+            .checked(id)
+            .filter(|(report, _)| !report.violations.is_empty())
+        else {
             self.back_to_decision(id, "keep refused: no usable gate report");
             return Err("还没有可用的检查结果，先重新检查一次".to_string());
         };
-        match self.try_commit(id, &context, &changes, &report, true) {
+        match self.try_commit(id, &context, &changes, &report, Some(Decision::KeptDespiteViolations)) {
             Ok(commit) => {
                 let overruled: Vec<String> = report
                     .violations
@@ -1385,7 +1562,11 @@ impl RunService {
                     overruled.len(),
                     short(&commit)
                 );
-                self.with_active(id, |active| active.record.kept_despite = overruled);
+                self.with_active(id, |active| {
+                    active.record.kept_despite = overruled;
+                    active.record.approved =
+                        report.approvals.iter().map(|item| item.message.clone()).collect();
+                });
                 self.finish(id, Outcome::Kept, message, Some(commit));
                 Ok(self.status())
             }
@@ -1398,6 +1579,63 @@ impl RunService {
             Err(CommitError::Failed(error)) => {
                 self.back_to_decision(id, &format!("keep failed: {error}"));
                 Err(format!("没能提交：{error}"))
+            }
+        }
+    }
+
+    /// Commits the result of the run `id` after the user looked at the
+    /// changes to their own layer and agreed (确认并提交). Recorded as
+    /// `decision: approved`, with the normal commit message.
+    pub fn approve(&self, id: &str) -> Result<RunStatus, String> {
+        let context = self.begin_decision_for(id, "确认提交", Some(&[Reason::NeedsApproval]))?;
+        let Some((report, changes)) = self
+            .checked(id)
+            .filter(|(report, _)| report.violations.is_empty() && !report.approvals.is_empty())
+        else {
+            self.back_to_decision(id, "approve refused: no usable gate report");
+            return Err("还没有可用的检查结果，先重新检查一次".to_string());
+        };
+        let approved: Vec<String> = report.approvals.iter().map(|item| item.message.clone()).collect();
+        self.with_active(id, |active| active.record.approved = approved.clone());
+        log::info!("run {id}: {} changes confirmed by the user", approved.len());
+        self.decided_commit(id, &context, &changes, report, Some(Decision::Approved))
+    }
+
+    /// Tries the commit again after git refused it (the check had passed, or
+    /// the user had agreed).
+    pub fn retry_commit(&self, id: &str) -> Result<RunStatus, String> {
+        let context = self.begin_decision_for(id, "重试提交", Some(&[Reason::CommitFailed]))?;
+        let decision = self
+            .with_active(id, |active| active.record.decision)
+            .flatten();
+        let Some((report, changes)) = self
+            .checked(id)
+            .filter(|(report, _)| report.violations.is_empty())
+        else {
+            self.back_to_decision(id, "retry refused: no usable gate report");
+            return Err("还没有可用的检查结果，先重新检查一次".to_string());
+        };
+        if decision.is_none() && !report.approvals.is_empty() {
+            self.back_to_decision(id, "retry refused: the changes were never confirmed");
+            return Err("这次的改动还没有经过你确认".to_string());
+        }
+        self.decided_commit(id, &context, &changes, report, decision)
+    }
+
+    fn decided_commit(
+        &self,
+        id: &str,
+        context: &Context,
+        changes: &Changes,
+        report: GateReport,
+        decision: Option<Decision>,
+    ) -> Result<RunStatus, String> {
+        match self.commit_checked(id, context, changes, report, decision) {
+            Checked::Settled => Ok(self.status()),
+            Checked::Again => {
+                self.back_to_decision(id, "commit refused: the files changed since the check");
+                self.recheck(id)?;
+                Err("检查之后文件又有变化，已经重新检查，请先看新的结果".to_string())
             }
         }
     }
@@ -1488,11 +1726,20 @@ impl RunService {
         record.phase = Phase::Checking;
         record.message = Some("App 重新打开了，正在检查上次留下的改动".to_string());
         log::warn!("run {id}: picked up again after a restart");
+        // Captures from the earlier session: those saved with the last check,
+        // and every one written down the moment it was made.
+        let mut beside = saved.beside;
+        for noted in record::load_beside(&folder) {
+            if !beside.contains(&noted) {
+                beside.push(noted);
+            }
+        }
+        write_down_captures(&job, &folder, &id);
         {
             let mut state = self.state();
             let mut active = Active::new(record, folder, root);
             active.snapshot = Some(saved.snapshot);
-            active.beside = saved.beside;
+            active.beside = beside;
             active.job = Some(job);
             state.active = Some(active);
         }
@@ -1536,20 +1783,27 @@ impl RunService {
     }
 
     /// True (and the run is finished) when the app went away right after it
-    /// made the run's commit, before it could write that down.
+    /// made the run's commit, before it could write that down. The commit is
+    /// recognised by the message written into run.json before it was made
+    /// (or by its hash, when that was written down too).
     fn was_committed(&self, id: &str) -> bool {
         let Some(context) = self.context(id) else {
             return false;
         };
-        let count = self
-            .with_active(id, |active| {
+        let Some((expected, known, decision, count)) = self.with_active(id, |active| {
+            (
+                active.record.commit_message.clone(),
+                active.record.commit.clone(),
+                active.record.decision,
                 active
                     .record
                     .gate
                     .as_ref()
-                    .map_or(0, |report| report.delete_queue_paths.len())
-            })
-            .unwrap_or(0);
+                    .map_or(0, |report| report.delete_queue_paths.len()),
+            )
+        }) else {
+            return false;
+        };
         let Ok(changes) = changes::collect(
             &context.root,
             self.env(),
@@ -1558,28 +1812,35 @@ impl RunService {
         ) else {
             return false;
         };
-        for kept in [false, true] {
-            let subject = commit_message(context.task, context.engine, count, kept);
-            if let Some(commit) = changes
-                .foreign_commits
-                .iter()
-                .find(|commit| commit.subject == subject)
-            {
-                let outcome = if kept {
-                    Outcome::Kept
-                } else {
-                    Outcome::Committed
-                };
-                self.finish(
-                    id,
-                    outcome,
-                    "已提交（App 在提交之后退出了，这里补记）".to_string(),
-                    Some(commit.hash.clone()),
-                );
-                return true;
-            }
-        }
-        false
+        // Records from before the message was written down: the subject it would have had.
+        let subjects: Vec<String> = match &expected {
+            Some(message) => vec![message.lines().next().unwrap_or_default().to_string()],
+            None => [false, true]
+                .into_iter()
+                .map(|kept| commit_message(context.task, context.engine, count, kept))
+                .collect(),
+        };
+        let found = changes.foreign_commits.iter().find(|commit| {
+            known.as_deref() == Some(commit.hash.as_str())
+                || (known.is_none() && subjects.contains(&commit.subject))
+        });
+        let Some(commit) = found else {
+            return false;
+        };
+        let kept = decision == Some(Decision::KeptDespiteViolations)
+            || (expected.is_none() && commit.subject.contains("手动保留"));
+        let outcome = if kept { Outcome::Kept } else { Outcome::Committed };
+        log::warn!(
+            "run {id}: its commit {} was made before the app went away; written down now",
+            short(&commit.hash)
+        );
+        self.finish(
+            id,
+            outcome,
+            "已提交（App 在提交之后退出了，这里补记）".to_string(),
+            Some(commit.hash.clone()),
+        );
+        true
     }
 
     /// The app is quitting: stop the engine and wait (a bounded time) until

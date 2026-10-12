@@ -1253,3 +1253,152 @@
     display: none;
   }
 }
+
+/* Waiting for the user's approval: calm azurite, no rotated seal. The user's
+   own layer is not a problem, it is theirs to decide. */
+.run-approval__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 0 6px;
+}
+
+.run-approval__mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  padding: 7px 0;
+  writing-mode: vertical-rl;
+  font: 700 14px/1.1 var(--font-serif);
+  letter-spacing: 0.1em;
+  color: var(--azurite);
+  border: 1px solid color-mix(in srgb, var(--azurite) 55%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--azurite) 7%, transparent);
+}
+
+.run-approval__title {
+  font: 700 19px/1.45 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.run-approval__lead {
+  margin-top: 4px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+}
+
+.approvals {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 14px;
+}
+
+.approval {
+  border: 1px solid var(--rule);
+  border-left: 3px solid color-mix(in srgb, var(--azurite) 60%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: var(--paper-raised);
+}
+
+.run-decision .approval {
+  background: transparent;
+}
+
+.approval__head {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.approval__no {
+  font: 700 14px/1.7 var(--font-serif);
+  color: var(--azurite);
+  text-align: center;
+}
+
+.approval__text {
+  font-size: 13.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.approval__where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.approval__where code {
+  font: 12px/1.4 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.approval__entry {
+  padding: 0 6px;
+  font: 600 11.5px/1.6 var(--font-num);
+  color: var(--azurite);
+  border: 1px solid color-mix(in srgb, var(--azurite) 40%, transparent);
+  border-radius: 3px;
+}
+
+.approval__diff {
+  border-top: 1px solid var(--rule);
+}
+
+.approval__diff .diff {
+  border: 0;
+  border-radius: 0 0 6px 0;
+}
+
+.run-approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.run-approval__hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* The check passed, git refused the commit: nothing is wrong with the run. */
+.run-commit-failed {
+  padding: 18px 0 4px;
+}
+
+.run-commit-failed__title {
+  font: 700 21px/1.4 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.run-commit-failed__message {
+  margin-top: 8px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  background: var(--ochre-wash);
+  border-left: 3px solid var(--ochre);
+  border-radius: 0 4px 4px 0;
+}
+
+.run-commit-failed__calm {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-faint);
+}

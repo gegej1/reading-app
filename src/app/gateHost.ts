@@ -70,6 +70,7 @@ export function crashedReport(input: GateInput, error: unknown): GateReport {
     ok: false,
     violations: [issue],
     warnings: [],
+    approvals: [],
     commitPaths: input.changes.map((change) => change.path).filter((path) => !queued.has(path)),
     deleteQueuePaths: [],
     restoreQueuePaths: input.changes.map((change) => change.path).filter((path) => queued.has(path)),

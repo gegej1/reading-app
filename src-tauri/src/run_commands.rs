@@ -10,6 +10,8 @@
 //! | `run_gate_report` | `runId`, `attempt`, `report` | hands in the gate's report                       |
 //! | `run_discard`     | `runId`                      | status; undoes the run (a copy is kept)          |
 //! | `run_keep`        | `runId`                      | status; commits although the check did not pass  |
+//! | `run_approve`     | `runId`                      | status; commits changes the user confirmed       |
+//! | `run_retry_commit`| `runId`                      | status; tries a refused commit again             |
 //! | `run_recheck`     | `runId`                      | status; checks the run's changes again           |
 //! | `run_history`     | –                            | the kept runs, newest first                      |
 //! | `run_record`      | `runId`                      | one kept run with its steps                      |
@@ -32,7 +34,7 @@ use crate::events::{self, KbChanged};
 use crate::kb::lock::KbLock;
 use crate::kb::sync::{SyncReport, SyncState};
 use crate::run::gate::{GateInput, GateReport};
-use crate::run::record::{Outcome, Phase, RunRecord};
+use crate::run::record::{Decision, Outcome, Phase, Reason, RunRecord};
 use crate::run::service::{
     Hooks, Notice, RunDetail, RunDirs, RunService, RunStatus, RunTiming, StartRequest, StepEvent,
 };
@@ -110,7 +112,14 @@ pub fn ending(status: &RunStatus) -> Option<Ending> {
     };
     let task = run.task.label();
     let title = match (phase, run.outcome) {
-        (Phase::NeedsDecision, _) => format!("{task}没通过检查，等你处理"),
+        (Phase::NeedsDecision, _) => match run.reason {
+            Some(Reason::NeedsApproval) => format!("{task}有改动需要你确认"),
+            Some(Reason::CommitFailed) => format!("{task}检查通过了，但没能提交"),
+            _ => format!("{task}没通过检查，等你处理"),
+        },
+        (_, Some(Outcome::Committed)) if run.decision == Some(Decision::Approved) => {
+            format!("{task}已确认提交")
+        }
         (_, Some(Outcome::Committed)) => format!("{task}完成了"),
         (_, Some(Outcome::Kept)) => format!("{task}已按你的要求提交"),
         (_, Some(Outcome::Discarded)) => format!("{task}的改动已经丢弃"),
@@ -246,6 +255,37 @@ pub fn start_from_command_line<R: Runtime>(
     }
 }
 
+/// `--approve`: commits the run result that waits for the user's
+/// confirmation, like 确认并提交 in the app. Logs what happened.
+pub fn approve_from_command_line<R: Runtime>(app: &AppHandle<R>) {
+    let Some(service) = app.try_state::<RunService>() else {
+        log::warn!("command line approve: the run service is not running");
+        return;
+    };
+    let status = service.status();
+    let waiting = status.run.filter(|run| {
+        status.phase == Phase::NeedsDecision && run.reason == Some(Reason::NeedsApproval)
+    });
+    let Some(run) = waiting else {
+        log::warn!("command line approve: no run result waits for confirmation");
+        return;
+    };
+    match service.approve(&run.id) {
+        Ok(after) => log::info!(
+            "command line approve: run {} confirmed: phase={:?} outcome={:?} commit={}",
+            run.id,
+            after.phase,
+            after.run.as_ref().and_then(|run| run.outcome),
+            after
+                .run
+                .as_ref()
+                .and_then(|run| run.commit.as_deref())
+                .unwrap_or("-"),
+        ),
+        Err(error) => log::warn!("command line approve: run {}: {error}", run.id),
+    }
+}
+
 /// Runs blocking work off the async runtime and logs how the command went.
 async fn call<T, F>(command: &'static str, run: Option<String>, work: F) -> Result<T, String>
 where
@@ -352,6 +392,30 @@ pub async fn run_keep(service: State<'_, RunService>, run_id: String) -> Result<
 }
 
 #[tauri::command]
+pub async fn run_approve(
+    service: State<'_, RunService>,
+    run_id: String,
+) -> Result<RunStatus, String> {
+    let service = service.inner().clone();
+    call("run_approve", Some(run_id.clone()), move || {
+        service.approve(&run_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn run_retry_commit(
+    service: State<'_, RunService>,
+    run_id: String,
+) -> Result<RunStatus, String> {
+    let service = service.inner().clone();
+    call("run_retry_commit", Some(run_id.clone()), move || {
+        service.retry_commit(&run_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn run_recheck(
     service: State<'_, RunService>,
     run_id: String,
@@ -431,6 +495,15 @@ mod tests {
         assert_eq!(done.phase, Phase::Finished);
         let waiting = ending(&status(Phase::NeedsDecision, Phase::NeedsDecision, None)).unwrap();
         assert_eq!(waiting.title, "入库没通过检查，等你处理");
+        let mut asking = status(Phase::NeedsDecision, Phase::NeedsDecision, None);
+        asking.run.as_mut().unwrap().reason = Some(Reason::NeedsApproval);
+        assert_eq!(ending(&asking).unwrap().title, "入库有改动需要你确认");
+        let mut refused = status(Phase::NeedsDecision, Phase::NeedsDecision, None);
+        refused.run.as_mut().unwrap().reason = Some(Reason::CommitFailed);
+        assert_eq!(ending(&refused).unwrap().title, "入库检查通过了，但没能提交");
+        let mut approved = status(Phase::Idle, Phase::Finished, Some(Outcome::Committed));
+        approved.run.as_mut().unwrap().decision = Some(Decision::Approved);
+        assert_eq!(ending(&approved).unwrap().title, "入库已确认提交");
         let failed = ending(&status(Phase::Idle, Phase::Finished, Some(Outcome::Failed))).unwrap();
         assert_eq!(failed.title, "入库没有完成");
         // Idle without a run that ended: nothing to tell.

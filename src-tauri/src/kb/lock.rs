@@ -51,11 +51,15 @@ struct Holder {
     since: Instant,
 }
 
+/// Told about every commit noted beside a job, as it is noted.
+pub type CommitListener = Arc<dyn Fn(&NotedCommit) + Send + Sync>;
+
 struct Job {
     id: u64,
     operation: String,
     since: Instant,
     commits: Vec<NotedCommit>,
+    listener: Option<CommitListener>,
 }
 
 /// A commit another operation made while a job was running.
@@ -172,6 +176,7 @@ impl KbLock {
                     operation: operation.to_string(),
                     since: Instant::now(),
                     commits: Vec::new(),
+                    listener: None,
                 });
                 return Ok(KbJob {
                     lock: self.clone(),
@@ -229,12 +234,23 @@ impl Job {
 impl KbLockGuard {
     /// Tells the running job (if any) about a commit this operation made:
     /// `commit` contains exactly the file `path`.
+    ///
+    /// The job's listener (see [`KbJob::on_commit`]) hears of it before this
+    /// returns, so the caller only lets go of the lock once the commit is
+    /// written down.
     pub fn note_commit(&self, commit: &str, path: &str) {
-        if let Some(job) = self.lock.state().job.as_mut() {
-            job.commits.push(NotedCommit {
-                commit: commit.to_string(),
-                path: path.to_string(),
-            });
+        let noted = NotedCommit {
+            commit: commit.to_string(),
+            path: path.to_string(),
+        };
+        let listener = {
+            let mut state = self.lock.state();
+            let Some(job) = state.job.as_mut() else { return };
+            job.commits.push(noted.clone());
+            job.listener.clone()
+        };
+        if let Some(listener) = listener {
+            listener(&noted);
         }
     }
 }
@@ -252,6 +268,14 @@ impl KbJob {
         let mut state = self.lock.state();
         if let Some(job) = state.job.as_mut().filter(|job| job.id == self.id) {
             job.operation = operation.to_string();
+        }
+    }
+
+    /// Calls `listener` for every commit noted beside this job from now on.
+    pub fn on_commit(&self, listener: impl Fn(&NotedCommit) + Send + Sync + 'static) {
+        let mut state = self.lock.state();
+        if let Some(job) = state.job.as_mut().filter(|job| job.id == self.id) {
+            job.listener = Some(Arc::new(listener));
         }
     }
 
@@ -466,6 +490,37 @@ mod tests {
             lock.try_acquire("同步").err().unwrap().operation,
             "等你处理入库结果"
         );
+    }
+
+    #[test]
+    fn a_job_listener_hears_each_commit_while_the_lock_is_still_held() {
+        let lock = KbLock::default();
+        let job = lock.start_job("入库", Duration::ZERO).unwrap();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        job.on_commit({
+            let heard = Arc::clone(&heard);
+            let lock = lock.clone();
+            move |noted: &NotedCommit| {
+                // Still inside the capture's turn: nobody else got in meanwhile.
+                assert!(lock.held_by().is_some_and(|busy| busy.operation == "写入"));
+                heard.lock().unwrap().push(noted.clone());
+            }
+        });
+        lock.acquire_beside_job("写入", Duration::ZERO)
+            .unwrap()
+            .note_commit("abc", "inbox/1.md");
+        assert_eq!(
+            *heard.lock().unwrap(),
+            [NotedCommit {
+                commit: "abc".into(),
+                path: "inbox/1.md".into()
+            }]
+        );
+        assert_eq!(job.noted_commits().len(), 1);
+        // A listener of a job that ended hears nothing more.
+        drop(job);
+        lock.try_acquire("写入").unwrap().note_commit("def", "inbox/2.md");
+        assert_eq!(heard.lock().unwrap().len(), 1);
     }
 
     #[test]

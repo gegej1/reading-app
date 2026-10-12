@@ -256,6 +256,10 @@ function escapeRegExp(text: string): string {
 export interface DiseEntryText {
   id: string;
   confirmed: boolean;
+  /** The heading carries the draft marker （草稿，待你确认）. */
+  draft: boolean;
+  /** The title as {@link DiseEntry.title} reads it. */
+  title: string;
   /**
    * From the heading line up to the next entry or section heading, byte for
    * byte (CR and trailing spaces kept), without the blank lines at its end.
@@ -289,6 +293,8 @@ export function diseEntryTexts(markdown: string): DiseEntryText[] {
     return {
       id: entry.id,
       confirmed: entry.confirmed,
+      draft: entry.draft,
+      title: entry.title,
       text: lines.slice(entry.line, end).join("\n"),
     };
   });

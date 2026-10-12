@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import type { GateIssue, RunTask } from "../../domain";
+import type { GateApproval, GateIssue, RunTask } from "../../domain";
 import { useKb } from "../../app/KbContext";
 import { pageRoute } from "../../app/links";
 import { useRun } from "../../app/RunContext";
@@ -19,7 +19,7 @@ import {
 } from "../../app/runView";
 import { cx, Hint } from "../../ui/components";
 import { chineseNumber } from "../../ui/format";
-import { ChangedFiles } from "./DiffView";
+import { ChangedFiles, DiffView, useChangedFiles } from "./DiffView";
 import { RunLive } from "./RunLive";
 import { StepList } from "./StepList";
 
@@ -52,6 +52,73 @@ export function IssueList({
         </li>
       ))}
     </ol>
+  );
+}
+
+/** The changes that wait for the user, numbered, each with what it changed. */
+export function ApprovalList({ items, runId, withDiff }: { items: readonly GateApproval[]; runId: string; withDiff: boolean }) {
+  if (items.length === 0) return null;
+  return (
+    <ol className="approvals">
+      {items.map((item, index) => (
+        <li key={`${item.rule}-${item.path}-${item.entry ?? ""}-${index}`} className="approval">
+          <div className="approval__head">
+            <span className="approval__no" aria-hidden="true">
+              {chineseNumber(index + 1)}
+            </span>
+            <div className="approval__what">
+              <p className="approval__text">{item.message}</p>
+              <p className="approval__where">
+                <code>{item.path}</code>
+                {item.entry ? <span className="approval__entry">{item.entry}</span> : null}
+              </p>
+            </div>
+          </div>
+          {withDiff ? <ApprovalDiff item={item} runId={runId} /> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Before and after of one change waiting for approval: the part the gate named, else the whole file. */
+function ApprovalDiff({ item, runId }: { item: GateApproval; runId: string }) {
+  const run = useRun();
+  const { files } = useChangedFiles(runId, null);
+  const known = files.find((file) => file.path === item.path && (file.before !== undefined || file.after !== undefined));
+  const own = item.before !== null || item.after !== null;
+  const [read, setRead] = useState<{ before: string | null; after: string | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (own || known || read) return;
+    let alive = true;
+    run.readSides(item.path).then(
+      (sides) => {
+        if (alive) setRead(sides);
+      },
+      (failure: unknown) => {
+        if (alive) setError(errorText(failure));
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [own, known, read, run, item.path]);
+  const sides = own
+    ? { before: item.before, after: item.after }
+    : known
+      ? { before: known.before ?? null, after: known.after ?? null }
+      : read;
+  return (
+    <div className="approval__diff">
+      {error ? (
+        <p className="diff__empty">读不出来：{error}</p>
+      ) : sides ? (
+        <DiffView before={sides.before} after={sides.after} />
+      ) : (
+        <p className="diff__empty">正在读取…</p>
+      )}
+    </div>
   );
 }
 
@@ -97,6 +164,7 @@ function Success({ record }: { record: RunRecord }) {
   const run = useRun();
   const { model } = useKb();
   const kept = record.outcome === "kept";
+  const approved = record.decision === "approved";
   const final = record.gate?.final ?? null;
   const figures = finalFigures(final, record.task);
   const note = finalNote(final);
@@ -110,10 +178,12 @@ function Success({ record }: { record: RunRecord }) {
   return (
     <div className="run-done">
       <div className="run-done__stamp" aria-hidden="true">
-        <span>{kept ? "保留" : record.task === "ingest" ? "已入库" : "已落定"}</span>
+        <span>{kept ? "保留" : approved ? "已确认" : record.task === "ingest" ? "已入库" : "已落定"}</span>
       </div>
-      <h3 className="run-done__title">{kept ? `检查没通过，按你的要求提交了` : `${label}完成了`}</h3>
-      <p className="run-done__summary">{record.gate?.summary ?? record.message}</p>
+      <h3 className="run-done__title">
+        {kept ? `检查没通过，按你的要求提交了` : approved ? `已确认提交，${label}完成了` : `${label}完成了`}
+      </h3>
+      <p className="run-done__summary">{approved ? record.message : (record.gate?.summary ?? record.message)}</p>
       {figures.length > 0 ? (
         <dl className="run-done__figures">
           {figures.map((figure) => (
@@ -131,6 +201,16 @@ function Success({ record }: { record: RunRecord }) {
           <summary>当时没通过的 {record.keptDespite.length} 项</summary>
           <ul className="run-details__list">
             {record.keptDespite.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {record.approved.length > 0 ? (
+        <details className="run-details">
+          <summary>你确认过的 {record.approved.length} 处改动</summary>
+          <ul className="run-details__list">
+            {record.approved.map((message) => (
               <li key={message}>{message}</li>
             ))}
           </ul>
@@ -228,6 +308,14 @@ function Decision({ record }: { record: RunRecord }) {
           <IssueList issues={violations} tone="violation" onOpen={setFocus} />
         </section>
       ) : null}
+      {(gate?.approvals.length ?? 0) > 0 ? (
+        <section aria-label="另外需要你确认的改动">
+          <h4 className="run-section__title">
+            另外需要你确认的 <span className="num">{gate?.approvals.length}</span> 项
+          </h4>
+          <ApprovalList items={gate?.approvals ?? []} runId={record.id} withDiff={false} />
+        </section>
+      ) : null}
       {(gate?.warnings.length ?? 0) > 0 ? (
         <details className="run-details">
           <summary>另有 {gate?.warnings.length} 条提醒（不影响提交）</summary>
@@ -280,6 +368,115 @@ function Decision({ record }: { record: RunRecord }) {
   );
 }
 
+/** The two buttons and the busy state shared by the calmer waiting screens. */
+function useAct(record: RunRecord) {
+  const run = useRun();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (what: string, action: (runId: string) => Promise<void>) => {
+    setBusy(what);
+    setError(null);
+    try {
+      await action(record.id);
+    } catch (failed) {
+      setError(errorText(failed));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return { run, busy, error, act };
+}
+
+/** Changes to the user's own layer (底色, systems/): nothing is wrong, but they decide. */
+function Approval({ record }: { record: RunRecord }) {
+  const { run, busy, error, act } = useAct(record);
+  const gate = record.gate;
+  const items = gate?.approvals ?? [];
+  return (
+    <div className="run-approval">
+      <header className="run-approval__head">
+        <span className="run-approval__mark" aria-hidden="true">
+          待你
+        </span>
+        <div>
+          <h3 className="run-approval__title">需要你确认</h3>
+          <p className="run-approval__lead">
+            这次有 <span className="num">{items.length}</span> 处改动动到了你自己的底色或体系。其余都通过了检查，改动原样留着，等你看过再决定。
+          </p>
+        </div>
+      </header>
+
+      <section aria-label="需要你确认的改动">
+        <ApprovalList items={items} runId={record.id} withDiff />
+      </section>
+
+      {(gate?.warnings.length ?? 0) > 0 ? (
+        <details className="run-details">
+          <summary>另有 {gate?.warnings.length} 条提醒（不影响提交）</summary>
+          <IssueList issues={gate?.warnings ?? []} tone="warning" />
+        </details>
+      ) : null}
+      <details className="run-details">
+        <summary>这次改了的全部文件</summary>
+        <ChangedFiles runId={record.id} gate={gate} focus={null} />
+      </details>
+
+      <div className="run-approval__actions">
+        <button type="button" className="btn btn--seal" onClick={() => void act("approve", run.approve)} disabled={busy !== null}>
+          {busy === "approve" ? "正在提交…" : "确认并提交"}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void act("discard", run.discard)}
+          disabled={busy !== null}
+          title="把这次改过的文件还原，新建的删掉；改动先复制一份留在运行记录里"
+        >
+          {busy === "discard" ? "正在丢弃…" : "丢弃（可找回）"}
+        </button>
+      </div>
+      <p className="run-approval__hint">确认后按平常的方式提交并同步；丢弃会还原这次的全部改动，副本留在运行记录里。</p>
+      {error ? (
+        <p className="run-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The check passed (or the user agreed), but git did not take the commit. */
+function CommitFailed({ record }: { record: RunRecord }) {
+  const { run, busy, error, act } = useAct(record);
+  return (
+    <div className="run-commit-failed">
+      <h3 className="run-commit-failed__title">检查通过了，但没能提交</h3>
+      <p className="run-commit-failed__message">{record.message}</p>
+      <p className="run-commit-failed__calm">
+        改动都还在，一个字也没丢。常见的原因是 git 钩子拒绝了提交，或者知识库文件夹的权限、磁盘出了问题；处理好以后点「重试提交」。
+      </p>
+      <RunFacts record={record} />
+      <details className="run-details">
+        <summary>这次改了的文件</summary>
+        <ChangedFiles runId={record.id} gate={record.gate} focus={null} />
+      </details>
+      <div className="run-approval__actions">
+        <button type="button" className="btn btn--seal" onClick={() => void act("retry", run.retryCommit)} disabled={busy !== null}>
+          {busy === "retry" ? "正在提交…" : "重试提交"}
+        </button>
+        <button type="button" className="btn" onClick={() => void act("discard", run.discard)} disabled={busy !== null}>
+          {busy === "discard" ? "正在丢弃…" : "丢弃（可找回）"}
+        </button>
+      </div>
+      {error ? (
+        <p className="run-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function Failure({ record }: { record: RunRecord }) {
   const cancelled = record.outcome === "cancelled";
   const exit = record.engineReport?.exit;
@@ -321,6 +518,8 @@ export function RunResult({ record, steps }: { record: RunRecord; steps: readonl
     <div className="run-result">
       {kind === "success" ? <Success record={record} /> : null}
       {kind === "decision" ? <Decision record={record} /> : null}
+      {kind === "approval" ? <Approval record={record} /> : null}
+      {kind === "commitFailed" ? <CommitFailed record={record} /> : null}
       {kind === "failed" || kind === "cancelled" ? <Failure record={record} /> : null}
       {kind === "nothing" ? <Plain record={record} title="队列是空的" hint="没有启动 AI，也没有花钱。" /> : null}
       {kind === "refused" ? (

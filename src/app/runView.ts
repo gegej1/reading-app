@@ -39,7 +39,8 @@ export function editBlockedHint(status: RunStatus | null): string | null {
   const run = activeRun(status);
   if (!run) return null;
   const label = TASK_LABEL[run.task];
-  return status?.phase === "needsDecision" ? `${label}的结果还在等你处理，处理完再改` : `正在${label}，结束后再改`;
+  if (status?.phase !== "needsDecision") return `正在${label}，结束后再改`;
+  return run.reason === "needsApproval" ? `${label}的结果还在等你确认，确认后再改` : `${label}的结果还在等你处理，处理完再改`;
 }
 
 /**
@@ -50,6 +51,18 @@ export function answerBlockedHint(status: RunStatus | null): string | null {
   const run = activeRun(status);
   if (!run || run.task !== "landRulings") return null;
   return status?.phase === "needsDecision" ? "落裁决的结果还在等你处理，处理完再回答" : "正在落裁决，结束后再回答";
+}
+
+/** What a waiting run waits for, in a few words. */
+export function waitingLabel(record: RunRecord): string {
+  switch (record.reason) {
+    case "needsApproval":
+      return "有改动需要你确认";
+    case "commitFailed":
+      return "检查通过了，但没能提交";
+    default:
+      return "没通过检查，等你处理";
+  }
 }
 
 /** Where a run stands, in a few words. */
@@ -77,6 +90,8 @@ export function phaseLabel(phase: RunPhase, task: RunTask): string {
 export type ResultKind =
   | "running"
   | "decision"
+  | "approval"
+  | "commitFailed"
   | "success"
   | "discarded"
   | "nothing"
@@ -85,7 +100,11 @@ export type ResultKind =
   | "cancelled";
 
 export function resultKind(record: RunRecord): ResultKind {
-  if (record.phase === "needsDecision") return "decision";
+  if (record.phase === "needsDecision") {
+    if (record.reason === "needsApproval") return "approval";
+    if (record.reason === "commitFailed") return "commitFailed";
+    return "decision";
+  }
   if (record.phase !== "finished") return "running";
   switch (record.outcome) {
     case "committed":
@@ -114,8 +133,13 @@ export function outcomeLabel(record: RunRecord): { text: string; tone: OutcomeTo
       return { text: "进行中", tone: "running" };
     case "decision":
       return { text: "等你处理", tone: "attention" };
+    case "approval":
+      return { text: "等你确认", tone: "attention" };
+    case "commitFailed":
+      return { text: "没能提交", tone: "attention" };
     case "success":
-      return record.outcome === "kept" ? { text: "保留提交", tone: "attention" } : { text: "已提交", tone: "ok" };
+      if (record.outcome === "kept") return { text: "保留提交", tone: "attention" };
+      return record.decision === "approved" ? { text: "已确认提交", tone: "ok" } : { text: "已提交", tone: "ok" };
     case "discarded":
       return { text: "已丢弃", tone: "quiet" };
     case "nothing":

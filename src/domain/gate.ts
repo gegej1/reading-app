@@ -7,7 +7,7 @@
 // two cheapest rules (allowed paths, raw/ only grows) at commit time.
 
 import { DISE_PATH } from "./kb";
-import { diseEntryTexts } from "./dise";
+import { diseEntryTexts, DRAFT_MARKER_TEXT, parseDise, type DiseEntryText } from "./dise";
 import { fmString, parseFrontmatter, splitFrontmatter } from "./frontmatter";
 import { precedentRulingTexts } from "./precedents";
 import { parseRuling, type Ruling } from "./rulings";
@@ -85,12 +85,41 @@ export interface GateIssue {
   message: string;
 }
 
+/** Why a change waits for the user's approval (AGENTS.md section 九, "需要我确认的改动"). */
+export type ApprovalRule =
+  /** An existing 底色 entry changed or went away (confirmed or not). */
+  | "diseEntry"
+  /** A new 底色 entry without the draft marker. */
+  | "diseDraft"
+  /** The frontmatter, the preface or the section headings of the 底色. */
+  | "diseFrame"
+  /** Anything under systems/. */
+  | "systems";
+
+/**
+ * A change that breaks no rule but touches the user's own layer: the app
+ * stops and shows it, and only commits once the user agreed.
+ */
+export interface GateApproval {
+  rule: ApprovalRule;
+  path: string;
+  /** The 底色 entry (`D09`), when it is about one. */
+  entry: string | null;
+  /** In plain Chinese: what changed and why it waits for the user. */
+  message: string;
+  /** The part that changed, before and after (null: did not exist, or the whole file is meant). */
+  before: string | null;
+  after: string | null;
+}
+
 export interface GateReport {
-  /** No violations: the app may commit. */
+  /** No violations and nothing to approve: the app may commit. */
   ok: boolean;
   violations: GateIssue[];
   /** Worth knowing, but no reason to hold the commit back. */
   warnings: GateIssue[];
+  /** No rule broken, but the user decides: the app commits only after they agree. */
+  approvals: GateApproval[];
   /** Every changed path the commit takes (never a queue file). */
   commitPaths: string[];
   /** Queue files whose body is verbatim in raw/: the app deletes them in the same commit. */
@@ -238,6 +267,7 @@ const OPAQUE_TEXT: Record<NonNullable<GateFile["opaque"]>, string> = {
 export function runGate(input: GateInput): GateReport {
   const violations: GateIssue[] = [];
   const warnings: GateIssue[] = [];
+  const approvals: GateApproval[] = [];
   const violation = (rule: GateRule, path: string | null, message: string) => violations.push({ rule, path, message });
   const warning = (rule: GateRule, path: string | null, message: string) => warnings.push({ rule, path, message });
 
@@ -353,6 +383,21 @@ export function runGate(input: GateInput): GateReport {
     }
   }
 
+  // The 底色 and systems/ are the user's layer: other changes wait for them.
+  if (dise && dise.opaque === null) approvals.push(...diseApprovals(dise.before, dise.after));
+  for (const change of input.changes) {
+    if (!change.path.startsWith("systems/") || queuePaths.has(change.path)) continue;
+    const what = change.status === "added" ? "新建了" : change.status === "deleted" ? "删除了" : "改了";
+    approvals.push({
+      rule: "systems",
+      path: change.path,
+      entry: null,
+      message: `${what}体系文件 ${change.path}：体系和机制以你为准，改动要你确认`,
+      before: null,
+      after: null,
+    });
+  }
+
   // The user's words in existing precedents stay exactly as they are.
   checkPrecedents(input.changes, violation);
 
@@ -404,23 +449,113 @@ export function runGate(input: GateInput): GateReport {
     .map((change) => change.path)
     .filter((path) => !queuePaths.has(path))
     .sort(byCodeUnit);
-  const ok = violations.length === 0;
+  const ok = violations.length === 0 && approvals.length === 0;
   const unit = ingest ? "条随手记" : "份裁决";
   const notes = warnings.length > 0 ? `（另有 ${warnings.length} 条提醒）` : "";
+  const asks = `${approvals.length} 处改动需要你确认`;
   const summary = ok
     ? `通过检查：${deleteQueuePaths.length} ${unit}都逐字进了原料层，提交 ${commitPaths.length} 个文件${notes}`
-    : `没通过检查：${violations.length} 个问题${notes}`;
+    : violations.length > 0
+      ? `没通过检查：${violations.length} 个问题${approvals.length > 0 ? `，另有 ${asks}` : ""}${notes}`
+      : `需要你确认：${asks}（动到了你的底色或体系），其余都通过了检查${notes}`;
 
   return {
     ok,
     violations,
     warnings,
+    approvals,
     commitPaths,
     deleteQueuePaths,
     restoreQueuePaths,
     summary,
     final,
   };
+}
+
+const DISE_FILE = "self/底色.md";
+const YOURS = "底色以你为主，改动要你确认";
+
+/** The frontmatter, title and preface of the 底色; and its section headings with their notes. */
+function diseFrame(text: string | null): { head: string; sections: string } {
+  if (text === null) return { head: "", sections: "" };
+  const doc = parseDise(text);
+  const head = [splitFrontmatter(text).block.trimEnd(), doc.title === null ? "" : `# ${doc.title}`, doc.introMarkdown];
+  const sections = doc.sections.flatMap((section) => [section.heading ? `## ${section.heading}` : "", section.introMarkdown]);
+  const join = (parts: string[]) => parts.filter((part) => part !== "").join("\n\n");
+  return { head: join(head), sections: join(sections) };
+}
+
+/**
+ * What of a 底色 change needs the user's approval (AGENTS.md sections 三 and
+ * 九): every existing entry that changed or went away, confirmed or not (a
+ * confirmed one is a violation as well, reported elsewhere); every new entry
+ * without the draft marker; and the frame around the entries. New draft
+ * entries and blank lines between entries need nothing.
+ */
+function diseApprovals(before: string | null, after: string | null): GateApproval[] {
+  const approvals: GateApproval[] = [];
+  const old = before === null ? [] : diseEntryTexts(before);
+  const now = after === null ? [] : diseEntryTexts(after);
+  const left: DiseEntryText[] = [...now];
+  const named = (entry: DiseEntryText) => `${entry.id}「${entry.title}」`;
+  for (const entry of old) {
+    const index = left.findIndex((candidate) => candidate.id === entry.id);
+    const match = index === -1 ? undefined : left.splice(index, 1)[0];
+    if (entry.confirmed) continue;
+    if (!match) {
+      approvals.push({
+        rule: "diseEntry",
+        path: DISE_FILE,
+        entry: entry.id,
+        message: `删掉了已有的底色条目 ${named(entry)}：${YOURS}`,
+        before: entry.text,
+        after: null,
+      });
+    } else if (match.text !== entry.text && !match.confirmed) {
+      approvals.push({
+        rule: "diseEntry",
+        path: DISE_FILE,
+        entry: entry.id,
+        message: `改了已有的底色条目 ${named(entry)}：这条还没盖章，但已有条目一律不动，${YOURS}`,
+        before: entry.text,
+        after: match.text,
+      });
+    }
+  }
+  for (const entry of left) {
+    if (entry.draft || entry.confirmed) continue;
+    approvals.push({
+      rule: "diseDraft",
+      path: DISE_FILE,
+      entry: entry.id,
+      message: `新加的底色条目 ${named(entry)} 没有标"${DRAFT_MARKER_TEXT}"：不是草稿的新条目要你确认`,
+      before: null,
+      after: entry.text,
+    });
+  }
+  const was = diseFrame(before);
+  const is = diseFrame(after);
+  if (was.head !== is.head) {
+    approvals.push({
+      rule: "diseFrame",
+      path: DISE_FILE,
+      entry: null,
+      message: `改了底色的开头（frontmatter、标题或前言）：${YOURS}`,
+      before: was.head || null,
+      after: is.head || null,
+    });
+  }
+  if (was.sections !== is.sections) {
+    approvals.push({
+      rule: "diseFrame",
+      path: DISE_FILE,
+      entry: null,
+      message: `改了底色的分节标题或分节说明：${YOURS}`,
+      before: was.sections || null,
+      after: is.sections || null,
+    });
+  }
+  return approvals;
 }
 
 /** 落裁决: each answered Q file says 已裁决; a rejected audit item became a new Q file. */

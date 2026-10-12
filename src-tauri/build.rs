@@ -24,6 +24,8 @@ fn main() {
             "run_gate_report",
             "run_discard",
             "run_keep",
+            "run_approve",
+            "run_retry_commit",
             "run_recheck",
             "run_history",
             "run_record",

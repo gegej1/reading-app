@@ -110,6 +110,7 @@ fn honest_gate(input: &GateInput) -> GateReport {
         },
         violations,
         warnings: Vec::new(),
+        approvals: Vec::new(),
         commit_paths: input
             .changes
             .iter()
@@ -1733,4 +1734,275 @@ fn the_history_shows_the_steps_of_any_kept_run() {
     for bad in ["../data", "nope", ""] {
         assert!(world.service.detail(bad).is_err(), "{bad:?}");
     }
+}
+
+/// The engine does a good ingest and also adds a mechanism under systems/.
+const INGEST_WITH_SYSTEMS: &str = r#"mkdir -p systems
+printf '# 新机制\n\n周五回顾。\n' > 'systems/新机制.md'
+"#;
+
+fn approval_of(path: &str, entry: Option<&str>) -> gate::GateApproval {
+    gate::GateApproval {
+        rule: if entry.is_some() { "diseEntry" } else { "systems" }.into(),
+        path: path.into(),
+        entry: entry.map(String::from),
+        message: format!("改了 {path}：要你确认"),
+        before: Some("### D01 示例\n> 原话".into()),
+        after: Some("### D01 示例\n> 原话\n\n- 新要点".into()),
+    }
+}
+
+/// The honest gate, which also asks about every change to the 底色 (as the real gate does).
+fn asking_gate(input: &GateInput) -> GateReport {
+    let mut report = honest_gate(input);
+    for change in &input.changes {
+        if change.path == "self/底色.md" {
+            report.approvals.push(approval_of(&change.path, Some("D02")));
+        }
+    }
+    if !report.approvals.is_empty() {
+        report.ok = false;
+        report.summary = if report.violations.is_empty() {
+            "需要你确认".into()
+        } else {
+            "没通过检查".into()
+        };
+    }
+    report
+}
+
+#[test]
+fn a_change_to_the_users_own_layer_waits_for_approval_and_is_committed_as_approved() {
+    let world = World::new("run-approve");
+    world.set_gate(|input| Some(asking_gate(input)));
+    world.claude(&format!(
+        "{INGEST}printf '\\n### D02 没盖章的条目\\n> 原话\\n\\n- AI 加的要点\\n' >> 'self/底色.md'\n{RESULT}"
+    ));
+    let commits = commit_count(&world.kb);
+    let id = world.start(Task::Ingest);
+    let record = world.undecided(&id);
+    assert_eq!(record.reason, Some(record::Reason::NeedsApproval));
+    assert!(World::rules(&record).is_empty());
+    let report = record.gate.as_ref().unwrap();
+    assert_eq!(report.approvals.len(), 1);
+    assert_eq!(report.approvals[0].entry.as_deref(), Some("D02"));
+    assert_eq!(commit_count(&world.kb), commits, "nothing is committed before the user agrees");
+    assert!(world.lock.held_by().unwrap().operation.contains("等你确认"));
+
+    // Keeping is for violations; there are none.
+    let refused = world.service.keep(&id).unwrap_err();
+    assert!(refused.contains("等你确认"), "{refused}");
+    assert_eq!(world.service.status().phase, Phase::NeedsDecision);
+
+    world.service.approve(&id).unwrap();
+    let done = world.finished(&id);
+    assert_eq!(done.outcome, Some(Outcome::Committed));
+    assert_eq!(done.decision, Some(record::Decision::Approved));
+    assert!(done.kept_despite.is_empty());
+    assert_eq!(done.approved, ["改了 self/底色.md：要你确认"]);
+    assert_eq!(commit_count(&world.kb), commits + 1);
+    assert_eq!(world.head_subject(), "入库：2 条（Claude）");
+    assert!(world.head_files().contains(&"M self/底色.md".to_string()));
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+    let saved: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(world.dir.path().join("data/runs").join(&id).join(record::RUN_FILE))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["decision"], "approved");
+    assert_eq!(saved["outcome"], "committed");
+    assert_eq!(saved["keptDespite"], serde_json::json!([]));
+    assert_eq!(saved["commitMessage"], "入库：2 条（Claude）");
+}
+
+#[test]
+fn the_app_itself_asks_about_systems_and_a_discard_still_undoes_everything() {
+    let world = World::new("run-approve-systems");
+    // The stand-in gate knows nothing of systems/: the app asks anyway.
+    world.claude(&format!("{INGEST}{INGEST_WITH_SYSTEMS}{RESULT}"));
+    let commits = commit_count(&world.kb);
+    let id = world.start(Task::Ingest);
+    let record = world.undecided(&id);
+    assert_eq!(record.reason, Some(record::Reason::NeedsApproval));
+    let report = record.gate.unwrap();
+    assert!(!report.ok);
+    assert_eq!(report.approvals[0].path, "systems/新机制.md");
+    assert!(record.message.unwrap().contains("需要你确认"));
+
+    world.service.discard(&id).unwrap();
+    let done = world.finished(&id);
+    assert_eq!(done.outcome, Some(Outcome::Discarded));
+    assert_eq!(done.decision, None);
+    assert_eq!(commit_count(&world.kb), commits);
+    assert!(!world.exists("systems"));
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+}
+
+#[test]
+fn violations_and_approvals_together_take_the_violation_path() {
+    let world = World::new("run-approve-both");
+    world.set_gate(|input| Some(asking_gate(input)));
+    world.claude(&format!(
+        "{HALF_INGEST}printf '\\n### D02 新条目\\n> 原话\\n' >> 'self/底色.md'\n{RESULT}"
+    ));
+    let id = world.start(Task::Ingest);
+    let record = world.undecided(&id);
+    assert_eq!(record.reason, Some(record::Reason::Violations));
+    assert_eq!(World::rules(&record), ["queueVerbatim"]);
+    assert_eq!(record.gate.as_ref().unwrap().approvals.len(), 1);
+    // Approving alone is not enough when rules were broken.
+    assert!(world.service.approve(&id).unwrap_err().contains("没通过检查"));
+
+    world.service.keep(&id).unwrap();
+    let kept = world.finished(&id);
+    assert_eq!(kept.outcome, Some(Outcome::Kept));
+    assert_eq!(kept.decision, Some(record::Decision::KeptDespiteViolations));
+    assert_eq!(kept.kept_despite.len(), 1);
+    assert_eq!(kept.approved.len(), 1);
+    assert_eq!(world.head_subject(), "入库：1 条（Claude，检查未通过，手动保留）");
+}
+
+#[test]
+fn a_commit_git_refuses_after_a_passed_check_is_not_a_failed_check() {
+    let world = World::new("run-commit-failed");
+    world.claude(&format!("{INGEST}{RESULT}"));
+    let hook = world.dir.write("kb/.git/hooks/pre-commit", "#!/bin/sh\necho 'hook says no' >&2\nexit 1\n");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let commits = commit_count(&world.kb);
+    let id = world.start(Task::Ingest);
+    let record = world.undecided(&id);
+    assert_eq!(record.reason, Some(record::Reason::CommitFailed));
+    let message = record.message.clone().unwrap();
+    assert!(message.contains("提交没有成功") && message.contains("hook says no"), "{message}");
+    assert!(!message.contains("没通过"), "{message}");
+    assert!(record.gate.as_ref().unwrap().violations.is_empty());
+    assert!(record.kept_despite.is_empty());
+    assert_eq!(commit_count(&world.kb), commits);
+    // Nothing was half done: the queue files are back, nothing is staged.
+    assert!(world.exists(CAPTURE_A) && world.exists(CAPTURE_B));
+    assert_eq!(git(&world.kb, &["diff", "--cached", "--name-only"]), "");
+
+    // Neither "keep anyway" nor "approve": the check passed.
+    assert!(world.service.keep(&id).unwrap_err().contains("重试提交"));
+    assert!(world.service.approve(&id).is_err());
+    // Still refused: it stays waiting, and says so again.
+    world.service.retry_commit(&id).unwrap();
+    let again = world.undecided(&id);
+    assert_eq!(again.reason, Some(record::Reason::CommitFailed));
+
+    fs::remove_file(&hook).unwrap();
+    world.service.retry_commit(&id).unwrap();
+    let done = world.finished(&id);
+    assert_eq!(done.outcome, Some(Outcome::Committed));
+    assert_eq!(done.decision, None);
+    assert!(done.kept_despite.is_empty());
+    assert_eq!(world.head_subject(), "入库：2 条（Claude）");
+    assert_eq!(commit_count(&world.kb), commits + 1);
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+}
+
+#[test]
+fn a_capture_made_while_a_run_waits_survives_a_restart_and_a_discard() {
+    let world = World::new("run-restore-capture");
+    world.claude(&format!("{HALF_INGEST}{RESULT}"));
+    let id = world.start(Task::Ingest);
+    world.undecided(&id);
+
+    // 记一笔 while the result waits for a decision.
+    let fresh = {
+        let guard = world
+            .lock
+            .acquire_beside_job("写入", Duration::from_secs(5))
+            .expect("captures keep working");
+        let built = capture::build_capture(
+            "等待处理时记下的一条。",
+            capture::MAC,
+            &capture::LocalTime::now(),
+        )
+        .unwrap();
+        let saved = capture::save_capture(&world.kb, &world.env.get().env, &built).unwrap();
+        guard.note_commit(saved.outcome.commit.as_deref().unwrap(), &saved.path);
+        saved.path
+    };
+    let capture_commit = git(&world.kb, &["rev-parse", "HEAD"]);
+    let commits = commit_count(&world.kb);
+
+    // The app quits without another check and is opened again.
+    let lock = KbLock::default();
+    let service = restarted(&world, world.kb.clone(), &lock);
+    service.restore();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while service.status().phase != Phase::NeedsDecision {
+        assert!(Instant::now() < deadline, "{:#?}", service.status());
+        thread::sleep(Duration::from_millis(10));
+    }
+    let record = service.status().run.unwrap();
+    assert!(
+        !World::rules(&record).contains(&"engineCommits".to_string()),
+        "the capture is the app's own commit: {record:#?}"
+    );
+
+    service.discard(&id).unwrap();
+    assert_eq!(service.status().phase, Phase::Idle);
+    assert_eq!(commit_count(&world.kb), commits, "no revert of the capture");
+    assert_eq!(git(&world.kb, &["rev-parse", "HEAD"]), capture_commit);
+    assert!(world.read(&fresh).ends_with("\n\n等待处理时记下的一条。\n"));
+    assert_eq!(world.status_lines(), "?? 草稿.md");
+}
+
+#[test]
+fn a_commit_made_just_before_a_crash_is_recognised_after_the_restart() {
+    let world = World::new("run-crash-commit");
+    world.claude(&format!("{INGEST}{RESULT}"));
+    // Right after git made the commit, before the app could write anything
+    // more: the run's record as a crash at that moment would leave it.
+    let runs = world.dir.path().join("data/runs");
+    let frozen = world.dir.path().join("frozen-run.json");
+    let hook = world.dir.write(
+        "kb/.git/hooks/post-commit",
+        &format!(
+            "#!/bin/sh\nfor f in '{}'/*/run.json; do cp \"$f\" '{}'; done\n",
+            runs.display(),
+            frozen.display()
+        ),
+    );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let id = world.start(Task::Ingest);
+    let done = world.finished(&id);
+    assert_eq!(done.outcome, Some(Outcome::Committed));
+    let commit = done.commit.clone().unwrap();
+    fs::remove_file(&hook).unwrap();
+
+    // Back to the moment of the crash: the record says "committing".
+    let folder = runs.join(&id);
+    fs::copy(&frozen, folder.join(record::RUN_FILE)).unwrap();
+    let mut crashed = record::load(&folder).unwrap();
+    // The message alone is enough to recognise the commit.
+    crashed.gate = None;
+    record::save(&folder, &crashed).unwrap();
+    assert_eq!(crashed.phase, Phase::Committing);
+    assert_eq!(crashed.commit, None);
+    assert_eq!(crashed.commit_message.as_deref(), Some("入库：2 条（Claude）"));
+    let commits = commit_count(&world.kb);
+
+    let lock = KbLock::default();
+    let service = restarted(&world, world.kb.clone(), &lock);
+    service.restore();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while service.status().phase != Phase::Idle {
+        assert!(Instant::now() < deadline, "{:#?}", service.status());
+        thread::sleep(Duration::from_millis(10));
+    }
+    let record = service.status().run.unwrap();
+    assert_eq!(record.outcome, Some(Outcome::Committed), "{record:#?}");
+    assert_eq!(record.commit.as_deref(), Some(commit.as_str()));
+    assert_eq!(commit_count(&world.kb), commits, "nothing is committed or reverted twice");
+    assert!(lock.try_acquire("同步").is_ok());
+    assert!(record::unfinished(&runs).is_none());
 }

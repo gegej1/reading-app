@@ -100,7 +100,11 @@ function record(patch: Partial<RunRecord> = {}): RunRecord {
     base: "0".repeat(40),
     engineReport: null,
     gate: null,
+    reason: null,
+    decision: null,
     keptDespite: [],
+    approved: [],
+    commitMessage: null,
     commit: null,
     discardedTo: null,
     ...patch,
@@ -296,6 +300,7 @@ function reportFixture(patch: Partial<GateReport> = {}): GateReport {
     ok: true,
     violations: [],
     warnings: [],
+    approvals: [],
     commitPaths: ["raw/inbox/2026-10-12-收件箱.md", "reports/2026-09-08-入库报告-2.md"],
     deleteQueuePaths: ["inbox/2026-09-10-想法.md"],
     restoreQueuePaths: [],
@@ -506,6 +511,156 @@ describe("a run that failed the check", () => {
   });
 });
 
+describe("a run that waits for the user's approval", () => {
+  const DISE = "self/底色.md";
+  const before = fixtureKb[DISE] ?? "";
+  // The engine added a bullet to D02, which is not confirmed.
+  const after = before.replace("### D02 同一时间只做一件主要的事\n", "### D02 同一时间只做一件主要的事\n\n- AI 加的一条要点\n");
+  const gateInput: GateRequest = {
+    runId: RUN_ID,
+    attempt: 1,
+    task: "ingest",
+    date: "2026-10-12",
+    changes: [
+      { path: DISE, status: "modified", before, after, opaque: null },
+      {
+        path: "raw/inbox/2026-10-12-收件箱.md",
+        status: "added",
+        before: null,
+        after: "# 2026-10-12 收件箱\n\n## I-01\n周五下午做一次周回顾，只看三件事。\n",
+        opaque: null,
+      },
+      { path: "reports/2026-10-12-入库报告.md", status: "added", before: null, after: "# 入库报告\n", opaque: null },
+    ],
+    unchanged: Object.entries(fixtureKb)
+      .filter(([path]) => path !== DISE && path.endsWith(".md"))
+      .map(([path, content]) => ({ path, content })),
+    queue: [{ path: "inbox/a.md", content: "---\n来源: mac\n---\n\n周五下午做一次周回顾，只看三件事。\n" }],
+    finalMessage: null,
+    engineFailure: null,
+    foreignCommits: [],
+    untrackedChanged: [],
+  };
+
+  async function waitingRun() {
+    let reported: GateReport | null = null;
+    const backend = standardBackend({
+      run_gate_input: () => gateInput,
+      run_gate_report: (args) => {
+        reported = (args?.report as GateReport) ?? null;
+        return null;
+      },
+      run_discard: () => status("idle", record({ phase: "finished", outcome: "discarded", message: "已丢弃" })),
+      run_approve: () =>
+        status(
+          "idle",
+          record({
+            phase: "finished",
+            outcome: "committed",
+            decision: "approved",
+            gate: reported ?? null,
+            approved: (reported as GateReport | null)?.approvals.map((item) => item.message) ?? [],
+            commit: "abcdef1234567890",
+            message: "你确认了 1 处改动，已提交 abcdef1234",
+          }),
+        ),
+    });
+    stopGate = startGateHost(backend.bridge, runGate);
+    mount(backend);
+    await waitFor(() => container?.querySelector(".today") != null, "今日");
+    backend.emit("run-status", status("checking", record({ phase: "checking" }), 1));
+    await waitFor(() => reported !== null, "the gate's report");
+    const report = reported as unknown as GateReport;
+    backend.emit("run-show", null);
+    backend.emit(
+      "run-status",
+      status(
+        "needsDecision",
+        record({ phase: "needsDecision", reason: "needsApproval", gate: report, message: report.summary, engineReport: engineReport() }),
+      ),
+    );
+    await waitFor(() => container?.querySelector(".run-approval") != null, "the approval view");
+    return { backend, report };
+  }
+
+  it("shows each change to the user's layer with its before and after, and no violation", async () => {
+    const { report } = await waitingRun();
+    expect(report.violations).toEqual([]);
+    expect(report.approvals.map((item) => item.entry)).toEqual(["D02"]);
+    const view = container?.querySelector(".run-approval");
+    const text = view?.textContent ?? "";
+    expect(text).toContain("需要你确认");
+    expect(text).toContain(report.approvals[0]?.message ?? "");
+    expect(text).not.toContain("没通过");
+    // The entry's diff is open: the added bullet is marked as added.
+    const added = [...(view?.querySelectorAll(".approval .diff__row.is-add") ?? [])].map((row) => row.textContent);
+    expect(added.some((row) => row?.includes("AI 加的一条要点"))).toBe(true);
+    expect(buttonNamed("仍然提交")).toBeUndefined();
+    expect(buttonNamed("确认并提交")).toBeDefined();
+    expect(buttonNamed("丢弃（可找回）")).toBeDefined();
+  });
+
+  it("确认并提交 commits as approved; 丢弃 discards", async () => {
+    const { backend } = await waitingRun();
+    click(buttonNamed("确认并提交"));
+    await waitFor(() => backend.called("run_approve").length === 1, "run_approve");
+    expect(backend.called("run_approve")[0]?.args).toEqual({ runId: RUN_ID });
+    await waitFor(() => (container?.textContent ?? "").includes("已确认提交"), "the approved result");
+    expect(container?.querySelector(".run-result")?.textContent).toContain("你确认了 1 处改动");
+    expect(backend.called("run_keep")).toEqual([]);
+  });
+
+  it("丢弃（可找回） discards the waiting run", async () => {
+    const { backend } = await waitingRun();
+    click(buttonNamed("丢弃（可找回）"));
+    await waitFor(() => backend.called("run_discard").length === 1, "run_discard");
+    expect(backend.called("run_approve")).toEqual([]);
+  });
+
+  it("lists what also needs approval next to the violations", async () => {
+    const backend = standardBackend();
+    const gate = reportFixture({
+      ok: false,
+      violations: [{ rule: "paths", path: "README.md", message: "改动了不允许改的文件：README.md" }],
+      approvals: [
+        { rule: "systems", path: "systems/周节奏.md", entry: null, message: "改了体系文件 systems/周节奏.md", before: null, after: null },
+      ],
+    });
+    await showResult(backend, status("needsDecision", record({ phase: "needsDecision", reason: "violations", gate, message: gate.summary })));
+    const text = container?.querySelector(".run-decision")?.textContent ?? "";
+    expect(text).toContain("改动了不允许改的文件：README.md");
+    expect(text).toContain("另外需要你确认的 1 项");
+    expect(text).toContain("改了体系文件 systems/周节奏.md");
+    expect(buttonNamed("仍然提交")).toBeDefined();
+  });
+});
+
+describe("a commit git refused after the check passed", () => {
+  it("says so plainly, never as a failed check, and offers 重试提交", async () => {
+    const backend = standardBackend({
+      run_retry_commit: () =>
+        status("idle", record({ phase: "finished", outcome: "committed", gate: reportFixture(), commit: "abcdef1234567890", message: "通过检查，已提交 abcdef1234" })),
+      run_discard: () => status("idle", record({ phase: "finished", outcome: "discarded", message: "已丢弃" })),
+    });
+    const message = "检查已经通过，但提交没有成功：git commit 失败：hook says no。改动原样留着，可以重试提交";
+    await showResult(
+      backend,
+      status("needsDecision", record({ phase: "needsDecision", reason: "commitFailed", gate: reportFixture(), message, engineReport: engineReport() })),
+    );
+    const view = container?.querySelector(".run-commit-failed");
+    const text = view?.textContent ?? "";
+    expect(text).toContain("检查通过了，但没能提交");
+    expect(text).toContain("hook says no");
+    expect(text).not.toContain("没通过检查");
+    expect(text).not.toContain("个问题");
+    expect(buttonNamed("仍然提交")).toBeUndefined();
+    click(buttonNamed("重试提交"));
+    await waitFor(() => backend.called("run_retry_commit").length === 1, "run_retry_commit");
+    expect(backend.called("run_retry_commit")[0]?.args).toEqual({ runId: RUN_ID });
+    await waitFor(() => (container?.textContent ?? "").includes("入库完成了"), "the committed result");
+  });
+});
+
 describe("the history", () => {
   it("lists the kept runs and opens one with its steps and check", async () => {
     const committed = record({
@@ -529,21 +684,37 @@ describe("the history", () => {
       gate: reportFixture({ ok: false, violations: [{ rule: "brokenLinks", path: "wiki/a.md", message: "wiki/a.md 里有新的断链 [[x]]" }] }),
       keptDespite: ["wiki/a.md 里有新的断链 [[x]]"],
     });
+    const approved = record({
+      id: "2026-10-10T09-00-00-ingest",
+      startedAt: STARTED - 2 * 86_400_000,
+      phase: "finished",
+      outcome: "committed",
+      decision: "approved",
+      endedAt: STARTED - 2 * 86_400_000 + 65_000,
+      engineReport: engineReport(),
+      gate: reportFixture({
+        ok: false,
+        approvals: [{ rule: "diseEntry", path: "self/底色.md", entry: "D02", message: "改了已有的底色条目 D02", before: "a", after: "b" }],
+      }),
+      approved: ["改了已有的底色条目 D02"],
+    });
     const backend = standardBackend({
-      run_history: () => [committed, codex],
+      run_history: () => [committed, codex, approved],
       run_record: (args) =>
         args?.runId === codex.id
           ? {
               record: codex,
               steps: [{ runId: codex.id, seq: 1, elapsedMs: 0, kind: "tool", verb: "改", target: "self/待裁决/Q-004.md", text: null }],
             }
-          : { record: committed, steps: [] },
+          : args?.runId === approved.id
+            ? { record: approved, steps: [] }
+            : { record: committed, steps: [] },
     });
     mount(backend);
     await waitFor(() => container?.querySelector(".today") != null, "今日");
     // 今日 leads to the history.
     click(container?.querySelector(".today__links button"));
-    await waitFor(() => container?.querySelectorAll(".history__row").length === 2, "the rows");
+    await waitFor(() => container?.querySelectorAll(".history__row").length === 3, "the rows");
     expect(container?.querySelector('.run-panel__tabs [aria-selected="true"]')?.textContent).toBe("运行记录");
     const rows = [...(container?.querySelectorAll(".history__row") ?? [])].map((row) => row.textContent ?? "");
     expect(rows[0]).toContain("入库");
@@ -556,6 +727,7 @@ describe("the history", () => {
     expect(rows[1]).toContain("gpt-5");
     expect(rows[1]).toContain("保留提交");
     expect(rows[1]).toContain("14k tokens");
+    expect(rows[2]).toContain("已确认提交");
 
     click(container?.querySelectorAll(".history__row")[1]);
     await waitFor(() => container?.querySelector(".history-detail__head") != null, "the detail");
@@ -567,7 +739,11 @@ describe("the history", () => {
     expect(detail).toContain("用量 输入 12k · 输出 1.2k tokens");
     expect(backend.called("run_record")[0]?.args).toEqual({ runId: codex.id });
     click(buttonNamed("← 运行记录"));
-    expect(container?.querySelectorAll(".history__row")).toHaveLength(2);
+    expect(container?.querySelectorAll(".history__row")).toHaveLength(3);
+    click(container?.querySelectorAll(".history__row")[2]);
+    await waitFor(() => (container?.querySelector(".history-detail")?.textContent ?? "").includes("你确认过的改动"), "the approved detail");
+    expect(container?.querySelector(".history-detail")?.textContent).toContain("改了已有的底色条目 D02");
+    expect(container?.querySelector(".history-detail .outcome")?.textContent).toBe("已确认提交");
   });
 });
 

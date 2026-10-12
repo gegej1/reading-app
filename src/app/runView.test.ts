@@ -39,7 +39,11 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
     base: "0".repeat(40),
     engineReport: null,
     gate: null,
+    reason: null,
+    decision: null,
     keptDespite: [],
+    approved: [],
+    commitMessage: null,
     commit: null,
     discardedTo: null,
     ...overrides,
@@ -65,6 +69,9 @@ describe("which run holds the knowledge base", () => {
     expect(editBlockedHint(status("needsDecision", record({ phase: "needsDecision" })))).toBe(
       "入库的结果还在等你处理，处理完再改",
     );
+    expect(editBlockedHint(status("needsDecision", record({ phase: "needsDecision", reason: "needsApproval" })))).toBe(
+      "入库的结果还在等你确认，确认后再改",
+    );
     expect(editBlockedHint(status("idle", null))).toBeNull();
   });
 
@@ -82,6 +89,10 @@ describe("results", () => {
   it("sorts every phase and outcome into one kind of result screen", () => {
     expect(resultKind(record())).toBe("running");
     expect(resultKind(record({ phase: "needsDecision" }))).toBe("decision");
+    expect(resultKind(record({ phase: "needsDecision", reason: "violations" }))).toBe("decision");
+    expect(resultKind(record({ phase: "needsDecision", reason: "incomplete" }))).toBe("decision");
+    expect(resultKind(record({ phase: "needsDecision", reason: "needsApproval" }))).toBe("approval");
+    expect(resultKind(record({ phase: "needsDecision", reason: "commitFailed" }))).toBe("commitFailed");
     const done = (outcome: RunRecord["outcome"]) => resultKind(record({ phase: "finished", outcome }));
     expect(done("committed")).toBe("success");
     expect(done("kept")).toBe("success");
@@ -97,6 +108,12 @@ describe("results", () => {
     expect(outcomeLabel(record({ phase: "finished", outcome: "committed" }))).toEqual({ text: "已提交", tone: "ok" });
     expect(outcomeLabel(record({ phase: "finished", outcome: "kept" })).text).toBe("保留提交");
     expect(outcomeLabel(record({ phase: "needsDecision" }))).toEqual({ text: "等你处理", tone: "attention" });
+    expect(outcomeLabel(record({ phase: "needsDecision", reason: "needsApproval" })).text).toBe("等你确认");
+    expect(outcomeLabel(record({ phase: "needsDecision", reason: "commitFailed" })).text).toBe("没能提交");
+    expect(outcomeLabel(record({ phase: "finished", outcome: "committed", decision: "approved" }))).toEqual({
+      text: "已确认提交",
+      tone: "ok",
+    });
     expect(outcomeLabel(record({ phase: "finished", outcome: "failed" })).tone).toBe("failed");
   });
 

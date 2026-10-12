@@ -94,6 +94,16 @@ function Detail({ id, onBack }: { id: string; onBack(): void }) {
               </ul>
             </section>
           ) : null}
+          {record.approved.length > 0 ? (
+            <section aria-label="你确认过的改动">
+              <h4 className="run-section__title">你确认过的改动</h4>
+              <ul className="run-details__list">
+                {record.approved.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {record.discardedTo ? (
             <p className="history-detail__copies">
               丢弃前的副本：<code>{record.discardedTo}</code>

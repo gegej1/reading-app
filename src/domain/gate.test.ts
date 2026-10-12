@@ -43,6 +43,7 @@ const BASE: Record<string, string> = {
   "log.md": "# 操作日志\n\n## [2026-10-11] ingest | 示例\n",
   "self/底色.md": DISE,
   "self/判例/P-001-速度与退路.md": "# P-001 速度与退路\n",
+  "systems/周节奏.md": "# 周节奏\n\n周五回顾。\n",
   "self/待裁决.md": "# 待裁决\n\n- [[Q-004-工具要不要统一]]\n",
   "self/待裁决/Q-004-工具要不要统一.md": Q004,
   "raw/inbox/2026-10-11-收件箱.md": "# 2026-10-11 收件箱\n\n## I-01\n小实验比大计划更快。\n",
@@ -201,6 +202,7 @@ describe("runGate: a well-behaved run", () => {
     const report = runGate(input({ after: ingestAfter() }));
     expect(report.violations).toEqual([]);
     expect(report.warnings).toEqual([]);
+    expect(report.approvals).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.commitPaths).toEqual([
       "index.md",
@@ -367,16 +369,20 @@ describe("runGate: queue items are copied verbatim", () => {
 describe("runGate: confirmed 底色 entries", () => {
   const withDise = (dise: string) => ({ ...ingestAfter(), "self/底色.md": dise });
 
-  it("accepts a new draft entry and changes to unconfirmed entries", () => {
-    const dise = `${DISE.replace("> 主线只有一条。", "> 主线只有一条，其余是配角。")}\n### D03 新草稿（草稿，待你确认）\n> 原话。\n`;
-    expect(runGate(input({ after: withDise(dise) })).violations).toEqual([]);
+  it("accepts a new draft entry without asking", () => {
+    const dise = `${DISE}\n### D03 新草稿（草稿，待你确认）\n> 原话。\n`;
+    const report = runGate(input({ after: withDise(dise) }));
+    expect(report.violations).toEqual([]);
+    expect(report.approvals).toEqual([]);
+    expect(report.ok).toBe(true);
   });
 
-  it("flags any change to a confirmed entry's text", () => {
+  it("flags any change to a confirmed entry's text as a violation, not as a question", () => {
     const report = runGate(input({ after: withDise(DISE.replace("再决定跑多快", "再决定跑得多快")) }));
     expect(rules(report.violations)).toEqual(["confirmedDise"]);
     expect(report.violations[0]?.message).toContain("D01");
     expect(report.violations[0]?.path).toBe("self/底色.md");
+    expect(report.approvals).toEqual([]);
   });
 
   it("flags a removed and an added check mark", () => {
@@ -387,10 +393,123 @@ describe("runGate: confirmed 底色 entries", () => {
     expect(added.violations[0]?.message).toContain("D02");
   });
 
+  it("flags a new entry that arrives with a check mark, also when it is a draft", () => {
+    const dise = `${DISE}\n### D03 新草稿（草稿，待你确认） ✅\n> 原话。\n`;
+    expect(rules(runGate(input({ after: withDise(dise) })).violations)).toEqual(["confirmedDise"]);
+  });
+
   it("flags deleting the 底色 file when it has confirmed entries", () => {
     const after = ingestAfter();
     delete after["self/底色.md"];
     expect(rules(runGate(input({ after })).violations)).toContain("confirmedDise");
+  });
+});
+
+describe("runGate: changes that need the user's approval", () => {
+  const DISE_PATH = "self/底色.md";
+  const withDise = (dise: string) => ({ ...ingestAfter(), [DISE_PATH]: dise });
+  const approvalRules = (report: ReturnType<typeof runGate>) => report.approvals.map((item) => item.rule);
+
+  it("asks about a bullet added to an unconfirmed entry, with the entry before and after", () => {
+    const dise = DISE.replace("> 主线只有一条。\n", "> 主线只有一条。\n\n- 新加的一条要点\n");
+    const report = runGate(input({ after: withDise(dise) }));
+    expect(report.violations).toEqual([]);
+    expect(report.ok).toBe(false);
+    expect(report.approvals).toHaveLength(1);
+    const [item] = report.approvals;
+    expect(item).toMatchObject({ rule: "diseEntry", path: DISE_PATH, entry: "D02" });
+    expect(item?.message).toContain("D02");
+    expect(item?.message).toContain("一次只做一件事");
+    expect(item?.before).toBe("### D02 一次只做一件事\n> 主线只有一条。");
+    expect(item?.after).toBe("### D02 一次只做一件事\n> 主线只有一条。\n\n- 新加的一条要点");
+    expect(report.summary).toContain("需要你确认");
+    // Everything is ready to commit once the user agrees.
+    expect(report.commitPaths).toContain(DISE_PATH);
+    expect(report.deleteQueuePaths).toEqual(INGEST_QUEUE);
+  });
+
+  it("asks about a changed heading or quote of an unconfirmed entry, and about removing it", () => {
+    const heading = runGate(input({ after: withDise(DISE.replace("### D02 一次只做一件事", "### D02 一次只做好一件事")) }));
+    expect(approvalRules(heading)).toEqual(["diseEntry"]);
+    const quote = runGate(input({ after: withDise(DISE.replace("主线只有一条。", "主线只能有一条。")) }));
+    expect(approvalRules(quote)).toEqual(["diseEntry"]);
+    const removed = runGate(input({ after: withDise(DISE.replace("### D02 一次只做一件事\n> 主线只有一条。\n", "")) }));
+    expect(approvalRules(removed)).toEqual(["diseEntry"]);
+    expect(removed.approvals[0]?.message).toContain("删");
+    expect(removed.approvals[0]?.after).toBeNull();
+    // A draft entry that already existed is an existing entry too.
+    const draft = DISE.replace("### D02 一次只做一件事", "### D02 一次只做一件事（草稿，待你确认）");
+    const editedDraft = runGate(
+      input({ before: { ...BASE, [DISE_PATH]: draft }, after: withDise(draft.replace("主线只有一条。", "主线只有两条。")) }),
+    );
+    expect(approvalRules(editedDraft)).toEqual(["diseEntry"]);
+  });
+
+  it("asks about a new entry without the draft marker, but not about one with it", () => {
+    const plain = runGate(input({ after: withDise(`${DISE}\n### D03 新条目\n> 原话。\n`) }));
+    expect(approvalRules(plain)).toEqual(["diseDraft"]);
+    expect(plain.approvals[0]).toMatchObject({ entry: "D03", before: null, after: "### D03 新条目\n> 原话。" });
+    expect(plain.approvals[0]?.message).toContain("（草稿，待你确认）");
+    const draft = runGate(input({ after: withDise(`${DISE}\n### D03 新条目（草稿，待你确认）\n> 原话。\n`) }));
+    expect(draft.approvals).toEqual([]);
+  });
+
+  it("asks about the frontmatter, the preface and the section headings", () => {
+    const frontmatter = runGate(input({ after: withDise(DISE.replace("类型: 底色", "类型: 底色\n更新: 2026-10-12")) }));
+    expect(approvalRules(frontmatter)).toEqual(["diseFrame"]);
+    const preface = runGate(input({ after: withDise(DISE.replace("# 示例底色\n", "# 示例底色\n\nAI 写的一段前言。\n")) }));
+    expect(approvalRules(preface)).toEqual(["diseFrame"]);
+    const section = runGate(input({ after: withDise(DISE.replace("## 一、怎么做选择", "## 一、怎么选")) }));
+    expect(approvalRules(section)).toEqual(["diseFrame"]);
+    expect(section.approvals[0]?.before).toContain("## 一、怎么做选择");
+    expect(section.approvals[0]?.after).toContain("## 一、怎么选");
+    // Blank lines between entries are nobody's words.
+    const spaced = runGate(input({ after: withDise(DISE.replace("### D02", "\n\n### D02")) }));
+    expect(spaced.approvals).toEqual([]);
+    expect(spaced.ok).toBe(true);
+  });
+
+  it("asks before the 底色 file goes away, also without confirmed entries", () => {
+    const before = { ...BASE, [DISE_PATH]: DISE.replace(" ✅", "") };
+    const after = ingestAfter();
+    delete after[DISE_PATH];
+    const report = runGate(input({ before, after }));
+    // (index.md still links to it: that is a broken link, nothing else.)
+    expect(rules(report.violations)).toEqual(["brokenLinks"]);
+    expect(report.approvals.length).toBeGreaterThan(0);
+    expect(report.approvals.every((item) => item.path === DISE_PATH)).toBe(true);
+  });
+
+  it("asks about every new, changed or deleted file under systems/", () => {
+    const added = runGate(input({ after: { ...ingestAfter(), "systems/新机制.md": "# 新机制\n" } }));
+    expect(added.approvals).toMatchObject([{ rule: "systems", path: "systems/新机制.md", entry: null }]);
+    expect(added.approvals[0]?.message).toContain("systems/新机制.md");
+    const changed = runGate(input({ after: { ...ingestAfter(), "systems/周节奏.md": "# 周节奏\n\n周六回顾。\n" } }));
+    expect(changed.approvals).toMatchObject([{ rule: "systems", path: "systems/周节奏.md" }]);
+    const deletedAfter = ingestAfter();
+    delete deletedAfter["systems/周节奏.md"];
+    const deleted = runGate(input({ after: deletedAfter }));
+    expect(deleted.approvals).toMatchObject([{ rule: "systems", path: "systems/周节奏.md" }]);
+    expect(deleted.approvals[0]?.message).toContain("删");
+    for (const report of [added, changed, deleted]) {
+      expect(report.violations).toEqual([]);
+      expect(report.ok).toBe(false);
+    }
+  });
+
+  it("asks nothing when neither the 底色 nor systems/ changed", () => {
+    expect(runGate(input({ after: ingestAfter() })).approvals).toEqual([]);
+    expect(runGate(input({ task: "landRulings", after: rulingsAfter() })).approvals).toEqual([]);
+  });
+
+  it("lists the approvals next to the violations when there are both", () => {
+    const after = { ...withDise(`${DISE}\n### D03 新条目\n> 原话。\n`), "README.md": "改了\n" };
+    const report = runGate(input({ after }));
+    expect(rules(report.violations)).toEqual(["paths"]);
+    expect(approvalRules(report)).toEqual(["diseDraft"]);
+    expect(report.ok).toBe(false);
+    expect(report.summary).toContain("没通过");
+    expect(report.summary).toContain("需要你确认");
   });
 });
 

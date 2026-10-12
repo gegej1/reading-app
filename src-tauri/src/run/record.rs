@@ -7,6 +7,7 @@
 //!   events.jsonl        the engine's output, line by line as it arrived
 //!   steps.jsonl         the steps the windows were shown, one JSON object per line
 //!   snapshot.json       where the run started (needed to discard or restore it)
+//!   beside.jsonl        captures committed beside the run, one line each, as they happen
 //!   stderr.txt          the end of the engine's error output, if any
 //!   final-message.txt   Codex's last reply
 //!   discarded/          copies of the run's files, when it was discarded
@@ -37,6 +38,7 @@ pub const RUN_FILE: &str = "run.json";
 pub const EVENTS_FILE: &str = "events.jsonl";
 pub const STEPS_FILE: &str = "steps.jsonl";
 pub const SNAPSHOT_FILE: &str = "snapshot.json";
+pub const BESIDE_FILE: &str = "beside.jsonl";
 pub const STDERR_FILE: &str = "stderr.txt";
 pub const FINAL_MESSAGE_FILE: &str = "final-message.txt";
 pub const DISCARDED_DIR: &str = "discarded";
@@ -78,6 +80,31 @@ pub enum Outcome {
     Failed,
     /// Stopped on request before it changed anything.
     Cancelled,
+}
+
+/// Why a run waits for a person (while its phase is `NeedsDecision`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Reason {
+    /// The check found problems: discard, keep anyway, or fix and check again.
+    Violations,
+    /// No problems, but changes to the user's own layer (底色, systems/) wait
+    /// for their approval.
+    NeedsApproval,
+    /// The check passed (or the user agreed) but git refused the commit.
+    CommitFailed,
+    /// The check could not be finished.
+    Incomplete,
+}
+
+/// What a person decided about a run that did not pass on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Decision {
+    /// They looked at the changes to their own layer and agreed.
+    Approved,
+    /// They committed it although the check found problems.
+    KeptDespiteViolations,
 }
 
 /// How the engine did.
@@ -122,9 +149,23 @@ pub struct RunRecord {
     pub engine_report: Option<EngineReport>,
     /// The latest answer of the gate (with what the app itself found added).
     pub gate: Option<GateReport>,
+    /// Why the run waits for a person, while it does.
+    #[serde(default)]
+    pub reason: Option<Reason>,
+    /// What a person decided, when the run did not pass on its own.
+    #[serde(default)]
+    pub decision: Option<Decision>,
     /// The violations at the moment a person chose to keep the result anyway.
+    #[serde(default)]
     pub kept_despite: Vec<String>,
-    /// The commit of the run.
+    /// The changes to their own layer a person agreed to.
+    #[serde(default)]
+    pub approved: Vec<String>,
+    /// The message of the run's commit, written down before the commit is
+    /// made, so a restart can recognise the commit.
+    #[serde(default)]
+    pub commit_message: Option<String>,
+    /// The commit of the run (written down as soon as it is known).
     pub commit: Option<String>,
     /// Where the copies of a discarded run are.
     pub discarded_to: Option<String>,
@@ -156,7 +197,11 @@ impl RunRecord {
             base: None,
             engine_report: None,
             gate: None,
+            reason: None,
+            decision: None,
             kept_despite: Vec::new(),
+            approved: Vec::new(),
+            commit_message: None,
             commit: None,
             discarded_to: None,
         }
@@ -231,6 +276,25 @@ pub fn save_snapshot(folder: &Path, saved: &SavedSnapshot) -> io::Result<()> {
 
 pub fn load_snapshot(folder: &Path) -> Option<SavedSnapshot> {
     load_json(&folder.join(SNAPSHOT_FILE))
+}
+
+/// Writes down at once a commit the app made beside the run (a capture), so
+/// it is known as the app's own also after a restart. Synced to disk: a
+/// capture that is forgotten would look like the run's and be discarded.
+pub fn append_beside(folder: &Path, noted: &NotedCommit) -> io::Result<()> {
+    let mut line = serde_json::to_string(noted).map_err(io::Error::other)?;
+    line.push('\n');
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(folder.join(BESIDE_FILE))?;
+    file.write_all(line.as_bytes())?;
+    file.sync_data()
+}
+
+/// The commits written down by [`append_beside`], oldest first.
+pub fn load_beside(folder: &Path) -> Vec<NotedCommit> {
+    read_json_lines(&folder.join(BESIDE_FILE)).unwrap_or_default()
 }
 
 /// The run folders, newest first.
@@ -435,6 +499,21 @@ mod tests {
         assert_eq!(json["engineReport"]["stream"]["costUsd"], 0.42);
         assert_eq!(json["engineReport"]["durationMs"], 95_000);
         assert_eq!(json["keptDespite"], serde_json::json!([]));
+        assert_eq!(json["decision"], serde_json::Value::Null);
+        // A record written before reasons and decisions existed still reads.
+        let mut old = json.clone();
+        for key in ["reason", "decision", "keptDespite", "approved", "commitMessage"] {
+            old.as_object_mut().unwrap().remove(key);
+        }
+        let old: RunRecord = serde_json::from_value(old).unwrap();
+        assert_eq!(old.decision, None);
+        assert!(old.approved.is_empty());
+        let mut approved = record("x", Phase::Finished);
+        approved.decision = Some(Decision::Approved);
+        approved.reason = Some(Reason::NeedsApproval);
+        let json = serde_json::to_value(&approved).unwrap();
+        assert_eq!(json["decision"], "approved");
+        assert_eq!(json["reason"], "needsApproval");
         assert!(json["startedAt"].as_u64().unwrap() > 1_700_000_000_000);
         assert_eq!(load(&dir.path().join("missing")), None);
     }
@@ -535,6 +614,28 @@ mod tests {
         assert_eq!(lines, [serde_json::json!({ "seq": 1 }), serde_json::json!({ "seq": 2 })]);
         // A folder that does not exist: nothing is written, nothing fails.
         append_json_line(&dir.path().join("missing").join(STEPS_FILE), &1);
+    }
+
+    #[test]
+    fn captures_beside_a_run_are_written_down_as_they_happen() {
+        let dir = TempDir::new("record-beside");
+        assert!(load_beside(dir.path()).is_empty());
+        let first = NotedCommit {
+            commit: "abc".into(),
+            path: "inbox/a.md".into(),
+        };
+        let second = NotedCommit {
+            commit: "def".into(),
+            path: "inbox/b.md".into(),
+        };
+        append_beside(dir.path(), &first).unwrap();
+        append_beside(dir.path(), &second).unwrap();
+        assert_eq!(load_beside(dir.path()), [first, second]);
+        assert!(append_beside(&dir.path().join("missing"), &NotedCommit {
+            commit: "x".into(),
+            path: "y".into(),
+        })
+        .is_err());
     }
 
     #[test]

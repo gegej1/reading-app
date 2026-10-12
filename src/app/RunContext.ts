@@ -48,6 +48,10 @@ export interface RunContextValue {
   cancel(): Promise<void>;
   discard(runId: string): Promise<void>;
   keep(runId: string): Promise<void>;
+  /** 确认并提交: commits changes to the user's own layer they agreed to. */
+  approve(runId: string): Promise<void>;
+  /** 重试提交: git refused the commit of a run that passed. */
+  retryCommit(runId: string): Promise<void>;
   recheck(runId: string): Promise<void>;
   /** A kept run with its steps (for the history). */
   loadRun(runId: string): Promise<RunDetail>;
@@ -79,6 +83,8 @@ export const NO_RUNS: RunContextValue = {
   cancel: unavailable,
   discard: unavailable,
   keep: unavailable,
+  approve: unavailable,
+  retryCommit: unavailable,
   recheck: unavailable,
   loadRun: unavailable,
   loadHistory: unavailable,

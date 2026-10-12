@@ -24,6 +24,8 @@
     "allow-run-gate-report",
     "allow-run-discard",
     "allow-run-keep",
+    "allow-run-approve",
+    "allow-run-retry-commit",
     "allow-run-recheck",
     "allow-run-history",
     "allow-run-record",

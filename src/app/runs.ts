@@ -11,6 +11,8 @@
 // | `run_steps`       | –                              | `RunStep[]`    |
 // | `run_discard`     | `{ runId }`                    | `RunStatus`    |
 // | `run_keep`        | `{ runId }`                    | `RunStatus`    |
+// | `run_approve`     | `{ runId }`                    | `RunStatus` (确认并提交) |
+// | `run_retry_commit`| `{ runId }`                    | `RunStatus` (重试提交) |
 // | `run_recheck`     | `{ runId }`                    | `RunStatus`    |
 // | `run_history`     | –                              | `RunRecord[]`  |
 // | `run_record`      | `{ runId }`                    | `RunDetail` (a kept run with its steps) |
@@ -34,6 +36,16 @@ export type RunPhase =
   | "committing"
   | "needsDecision"
   | "finished";
+
+/**
+ * Why a run waits for a person (phase `needsDecision`): the check found
+ * problems; changes to the user's own layer wait for their approval; git
+ * refused the commit after the check passed; or the check never finished.
+ */
+export type DecisionReason = "violations" | "needsApproval" | "commitFailed" | "incomplete";
+
+/** What a person decided about a run that did not pass on its own. */
+export type RunDecision = "approved" | "keptDespiteViolations";
 
 /** How a run ended. */
 export type RunOutcome =
@@ -102,7 +114,14 @@ export interface RunRecord {
   base: string | null;
   engineReport: EngineReport | null;
   gate: GateReport | null;
+  /** Why the run waits for a person, while it does. */
+  reason: DecisionReason | null;
+  decision: RunDecision | null;
   keptDespite: string[];
+  /** The changes to their own layer the user agreed to. */
+  approved: string[];
+  /** The commit's message, written down before the commit is made. */
+  commitMessage: string | null;
   commit: string | null;
   discardedTo: string | null;
 }

@@ -9,6 +9,9 @@
 //! dise --land-rulings       start an AI run: 落裁决 (work through inbox/裁决/)
 //!      --engine claude|codex   the engine of that run, instead of the configured one
 //!      --model <name>          the model of that run
+//! dise --approve            确认并提交: commit the run result that waits for
+//!                           the user's confirmation (changes to the 底色 or
+//!                           systems/), exactly like the button in the app
 //! ```
 //!
 //! When an instance is already running, the single-instance plugin hands the
@@ -33,6 +36,8 @@ pub struct CliRequest {
     pub engine: Option<String>,
     /// `--model`.
     pub model: Option<String>,
+    /// `--approve`.
+    pub approve: bool,
     /// Arguments that were not understood (logged, otherwise ignored).
     pub unknown: Vec<String>,
 }
@@ -41,7 +46,11 @@ impl CliRequest {
     /// True when the command line asked for some work, so the main window
     /// stays closed.
     pub fn has_action(&self) -> bool {
-        self.capture.is_some() || self.answer.is_some() || self.sync || self.run.is_some()
+        self.capture.is_some()
+            || self.answer.is_some()
+            || self.sync
+            || self.run.is_some()
+            || self.approve
     }
 }
 
@@ -78,6 +87,8 @@ where
             });
         } else if arg == "--sync" {
             request.sync = true;
+        } else if arg == "--approve" {
+            request.approve = true;
         } else if arg == "--ingest" {
             ask_for(&mut request, Task::Ingest);
         } else if arg == "--land-rulings" {
@@ -138,6 +149,13 @@ mod tests {
         let request = parse(["--capture", "--sync"]);
         assert_eq!(request.capture, Some(Ok("--sync".to_string())));
         assert!(!request.sync);
+    }
+
+    #[test]
+    fn reads_an_approval() {
+        let request = parse(["--approve"]);
+        assert!(request.approve && request.has_action());
+        assert!(!parse(["--sync"]).approve);
     }
 
     #[test]

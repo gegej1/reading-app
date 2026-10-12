@@ -215,11 +215,12 @@ fn on_tray_action<R: Runtime>(app: &AppHandle<R>, action: Action) {
 fn on_second_launch<R: Runtime>(app: &AppHandle<R>, args: Vec<String>) {
     let request = cli::parse(args.into_iter().skip(1));
     log::info!(
-        "second launch handed over to this instance (capture={}, answer={}, sync={}, run={})",
+        "second launch handed over to this instance (capture={}, answer={}, sync={}, run={}, approve={})",
         request.capture.is_some(),
         request.answer.is_some(),
         request.sync,
-        request.run.is_some()
+        request.run.is_some(),
+        request.approve
     );
     perform(app, &request);
     if !request.has_action() {
@@ -282,6 +283,15 @@ fn perform<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
     if request.sync {
         if let Some(service) = app.try_state::<SyncService>() {
             service.schedule(Duration::ZERO, "command line");
+        }
+    }
+    if request.approve {
+        let app = app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("command-line-approve".into())
+            .spawn(move || run_commands::approve_from_command_line(&app));
+        if let Err(error) = spawned {
+            log::error!("command line approve: could not start ({error})");
         }
     }
 }
@@ -409,6 +419,8 @@ fn register<R: Runtime>(
             run_commands::run_gate_report,
             run_commands::run_discard,
             run_commands::run_keep,
+            run_commands::run_approve,
+            run_commands::run_retry_commit,
             run_commands::run_recheck,
             run_commands::run_history,
             run_commands::run_record,
@@ -514,6 +526,7 @@ mod ipc_tests {
                 "mkdir -p raw/inbox reports\n",
                 "printf '# 收件箱\\n\\n一条\\n\\n第二条\\n' > raw/inbox/新-收件箱.md\n",
                 "printf '# 入库报告\\n' > reports/新-入库报告.md\n",
+                "if [ -f \"$DISE_FAKE_SECOND\" ]; then printf '\\n### D02 没标草稿的新条目\\n> 原话\\n' >> self/底色.md; fi\n",
                 "printf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"{}\",\"total_cost_usd\":0.1,\"num_turns\":2}'\n",
             ),
         );
@@ -528,6 +541,10 @@ mod ipc_tests {
                 (
                     "DISE_FAKE_CLAUDE".to_string(),
                     scenario.to_string_lossy().into_owned(),
+                ),
+                (
+                    "DISE_FAKE_SECOND".to_string(),
+                    scratch.path().join("second").to_string_lossy().into_owned(),
                 ),
             ]),
             origin: Origin::LoginShell,
@@ -672,7 +689,7 @@ mod ipc_tests {
             json!({ "task": "ingest", "engine": "gemini" }),
         ));
         assert!(unknown.contains("不认识的引擎"), "{unknown}");
-        for cmd in ["run_discard", "run_keep", "run_recheck"] {
+        for cmd in ["run_discard", "run_keep", "run_approve", "run_retry_commit", "run_recheck"] {
             let refused = denied(invoke(&main, cmd, json!({ "runId": "no-such-run" })));
             assert!(refused.contains("没有这次运行"), "{cmd}: {refused}");
         }
@@ -795,6 +812,85 @@ mod ipc_tests {
             assert!(refused.contains("没有这次运行的记录"), "{bad}: {refused}");
         }
 
+        // A second run touches the 底色: it waits for the user's approval,
+        // and 确认并提交 commits it as approved.
+        scratch.write("second", "");
+        invoke(
+            &main,
+            "kb_create",
+            json!({
+                "path": "inbox/2026-10-12T15-00-00-mac.md",
+                "content": "---\n来源: mac\n时间: 2026-10-12T15:00:00+08:00\n---\n\n第二条\n",
+                "message": "收件箱：记一笔（mac）",
+            }),
+        )
+        .unwrap();
+        let second = invoke(&main, "run_start", json!({ "task": "ingest" })).unwrap();
+        let second_id = second["run"]["id"].as_str().unwrap().to_string();
+        let checking = wait_for("checking");
+        let attempt = checking["gateAttempt"].clone();
+        let input = invoke(
+            &main,
+            "run_gate_input",
+            json!({ "runId": second_id, "attempt": attempt }),
+        )
+        .unwrap();
+        let changed: Vec<&str> = input["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|change| change["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(changed, ["self/底色.md"]);
+        let queued = input["queue"][0]["path"].as_str().unwrap().to_string();
+        invoke(
+            &main,
+            "run_gate_report",
+            json!({
+                "runId": second_id,
+                "attempt": attempt,
+                "report": {
+                    "ok": false,
+                    "violations": [],
+                    "warnings": [],
+                    "approvals": [{
+                        "rule": "diseDraft",
+                        "path": "self/底色.md",
+                        "entry": "D02",
+                        "message": "新加的底色条目 D02 没有标草稿",
+                        "before": null,
+                        "after": "### D02 没标草稿的新条目\n> 原话",
+                    }],
+                    "commitPaths": changed,
+                    "deleteQueuePaths": [queued],
+                    "restoreQueuePaths": [],
+                    "summary": "需要你确认：1 处改动",
+                    "final": null,
+                },
+            }),
+        )
+        .unwrap();
+        let waiting = wait_for("needsDecision");
+        assert_eq!(waiting["run"]["reason"], "needsApproval", "{waiting}");
+        let commits = commit_count(kb.path());
+        let refused = denied(invoke(&main, "run_keep", json!({ "runId": second_id })));
+        assert!(refused.contains("等你确认"), "{refused}");
+        let approved = invoke(&main, "run_approve", json!({ "runId": second_id })).unwrap();
+        assert_eq!(approved["phase"], "idle", "{approved}");
+        assert_eq!(approved["run"]["outcome"], "committed");
+        assert_eq!(approved["run"]["decision"], "approved");
+        assert_eq!(commit_count(kb.path()), commits + 1);
+        assert_eq!(git(kb.path(), &["log", "-1", "--format=%s"]), "入库：1 条（Claude）");
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(scratch.path().join("runs").join(&second_id).join("run.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["decision"], "approved");
+        assert_eq!(saved["approved"], json!(["新加的底色条目 D02 没有标草稿"]));
+        let refused = denied(invoke(&main, "run_retry_commit", json!({ "runId": second_id })));
+        assert!(refused.contains("没有这次运行"), "{refused}");
+
         // The settings screen: what it shows, and saving keeps unknown keys.
         let shown = invoke(&main, "settings_get", json!({})).unwrap();
         assert_eq!(shown["version"], "0.1.0");
@@ -868,7 +964,7 @@ mod ipc_tests {
         )
         .unwrap();
         assert_eq!(saved["committed"], true);
-        assert_eq!(commit_count(kb.path()), 6);
+        assert_eq!(commit_count(kb.path()), 8);
         for path in ["self/新的.md", "inbox/裁决/2026-10-12-Q-001.md", "index.md"] {
             let refused = denied(invoke(
                 &capture,
@@ -902,6 +998,8 @@ mod ipc_tests {
             ("run_gate_input", json!({ "runId": "x", "attempt": 1 })),
             ("run_discard", json!({ "runId": "x" })),
             ("run_keep", json!({ "runId": "x" })),
+            ("run_approve", json!({ "runId": "x" })),
+            ("run_retry_commit", json!({ "runId": "x" })),
             ("run_recheck", json!({ "runId": "x" })),
             ("run_record", json!({ "runId": "x" })),
             ("settings_get", json!({})),
@@ -917,7 +1015,7 @@ mod ipc_tests {
             assert!(refused.contains("not allowed"), "{cmd}: {refused}");
         }
         invoke(&capture, "capture_hide", json!({})).unwrap();
-        assert_eq!(commit_count(kb.path()), 6);
+        assert_eq!(commit_count(kb.path()), 8);
 
         // Any other window gets nothing.
         let other = WebviewWindowBuilder::new(&app, "other", Default::default())

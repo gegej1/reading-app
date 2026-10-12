@@ -1,6 +1,6 @@
 import { cx } from "../ui/components";
 import { useRun } from "./RunContext";
-import { TASK_LABEL } from "./runView";
+import { TASK_LABEL, waitingLabel } from "./runView";
 
 /**
  * The run's place in the sidebar (desktop): 入库中 while a run goes on,
@@ -11,11 +11,12 @@ export function RunIndicator() {
   const run = useRun();
   if (!run.available || (!run.activeTask && !run.unseen)) return null;
   const waiting = run.status?.phase === "needsDecision";
+  const asking = waiting && run.status?.run?.reason === "needsApproval";
   const tone = run.activeTask ? (waiting ? "attention" : "running") : "result";
-  const label = run.activeTask ? (waiting ? "待处理" : `${TASK_LABEL[run.activeTask]}中`) : "有结果";
+  const label = run.activeTask ? (asking ? "待确认" : waiting ? "待处理" : `${TASK_LABEL[run.activeTask]}中`) : "有结果";
   const title = run.activeTask
-    ? waiting
-      ? `${TASK_LABEL[run.activeTask]}没通过检查，等你处理。点一下打开`
+    ? waiting && run.status?.run
+      ? `${TASK_LABEL[run.activeTask]}${waitingLabel(run.status.run)}。点一下打开`
       : `正在${TASK_LABEL[run.activeTask]}，点一下看进度`
     : "有一次运行结束了，点一下看结果";
   return (
