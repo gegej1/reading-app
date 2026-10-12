@@ -7,12 +7,14 @@ import type { EngineKind } from "../../app/runs";
 import { ENGINE_LABEL, TASK_LABEL } from "../../app/runView";
 import { cx, EmptyState, PageHeader } from "../../ui/components";
 import {
+  bridgePlace,
   checkAiForm,
   formFromSettings,
   MODEL_SUGGESTIONS,
   remoteText,
   type AiField,
   type AiForm,
+  type BridgeStatus,
   type KbFolderCheck,
   type PickedFolder,
   type SettingsInfo,
@@ -452,6 +454,90 @@ function AutostartSwitch({ enabled, bridge, onChanged }: { enabled: boolean | nu
   );
 }
 
+/** The iPhone bridge through iCloud: on or off, where its folder is, how it goes. */
+function BridgeSettings({
+  status,
+  bridge,
+  onSaved,
+  onOpen,
+}: {
+  status: BridgeStatus;
+  bridge: Desktop;
+  onSaved(next: SettingsInfo): void;
+  onOpen(): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const toggle = async () => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      onSaved(await bridge.call<SettingsInfo>("settings_set_bridge", { enabled: !status.enabled }));
+    } catch (error) {
+      setFailure(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="autostart">
+      <label className={cx("switch", status.enabled && "is-on")}>
+        <input type="checkbox" role="switch" checked={status.enabled} onChange={() => void toggle()} disabled={busy} />
+        <span className="switch__track" aria-hidden="true">
+          <span className="switch__thumb" />
+        </span>
+        <span className="switch__label">通过 iCloud 云盘和 iPhone 互通</span>
+      </label>
+      <p className="field__hint">
+        手机上用「快捷指令」记一笔、回答待裁决，这台 Mac 收进知识库；底色、判例、待裁决、待抽查和最近一次入库做成手机页面放进 iCloud。原料、知识页和体系不会离开这台 Mac。
+      </p>
+      {status.enabled ? (
+        <dl className="settings-facts">
+          <dt>文件夹</dt>
+          <dd>
+            {bridgePlace(status)}
+            {status.source === "env" ? "（由环境变量 DISE_BRIDGE_DIR 指定）" : null}
+          </dd>
+          <dt>状态</dt>
+          <dd>
+            {status.problem
+              ? status.problem
+              : status.ready
+                ? status.waiting > 0
+                  ? `正在看着；有 ${status.waiting} 个文件在等（iCloud 还在同步，或者知识库正忙）`
+                  : "正在看着，手机上的新文件会自动收进来"
+                : "正在准备…"}
+          </dd>
+          {status.lastImport ? (
+            <>
+              <dt>最近</dt>
+              <dd>{status.lastImport}</dd>
+            </>
+          ) : null}
+          {status.shortcuts ? (
+            <>
+              <dt>快捷指令</dt>
+              <dd>{status.shortcuts}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+      {status.enabled && status.ready ? (
+        <div className="settings-form__actions">
+          <button type="button" className="btn" onClick={onOpen}>
+            在访达中打开
+          </button>
+        </div>
+      ) : null}
+      {failure ? (
+        <p className="field__error" role="alert">
+          {failure}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** The settings screen (desktop only). */
 export default function SettingsScreen({ bridge = desktop }: { bridge?: Desktop }) {
   const { store } = useKb();
@@ -476,7 +562,7 @@ export default function SettingsScreen({ bridge = desktop }: { bridge?: Desktop 
     };
   }, [available, bridge]);
 
-  const open = async (which: "logs" | "runs") => {
+  const open = async (which: "logs" | "runs" | "bridge") => {
     setOpening(null);
     try {
       await bridge.call("settings_open_folder", { which });
@@ -528,6 +614,11 @@ export default function SettingsScreen({ bridge = desktop }: { bridge?: Desktop 
               onChanged={(next) => setInfo((current) => (current ? { ...current, captureShortcut: next } : current))}
             />
           </Section>
+          {info.bridge ? (
+            <Section title="iPhone" aside="只用 iCloud 云盘">
+              <BridgeSettings status={info.bridge} bridge={bridge} onSaved={setInfo} onOpen={() => void open("bridge")} />
+            </Section>
+          ) : null}
           <Section title="开机时">
             <AutostartSwitch
               enabled={info.autostart}

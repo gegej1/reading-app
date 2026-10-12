@@ -6,6 +6,7 @@ import { KbContext, type KbContextValue } from "./KbContext";
 import { desktop, kbLoadSummary, type Desktop } from "./desktop";
 import { createKbEditor } from "./editFile";
 import { makeLinkResolver } from "./links";
+import { createPhoneExporter } from "./phoneExport";
 
 type LoadState =
   | { status: "loading" }
@@ -19,10 +20,18 @@ const MAIN_WINDOW = "main";
 
 /** Payload of the backend's `kb-changed` event (src-tauri/src/events.rs). */
 export interface KbChanged {
-  reason: "write" | "create" | "capture" | "sync";
+  reason: "write" | "create" | "capture" | "sync" | "run" | "settings" | "bridge";
   path: string | null;
   /** The window that made the change, if a window did. */
   window: string | null;
+}
+
+/** The iPhone export of the desktop app: one per window, kept up to date by every load. */
+const phoneExporter = createPhoneExporter(desktop);
+
+/** Hands a fresh model to the iPhone export (desktop app only). */
+function exportForPhone(store: KbStore, model: KbModel) {
+  if (store.kind === "tauri") phoneExporter.loaded(model);
 }
 
 /** The tray menu shows how many captures and pending rulings there are (desktop only). */
@@ -80,6 +89,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
           setState({ status: "ready", store, model });
           desktop.log("info", kbLoadSummary("kb loaded", model, store));
           reportCounts(desktop, store, model);
+          exportForPhone(store, model);
         }
       } catch (error) {
         if (!cancelled && seq === loadSeq.current) {
@@ -114,6 +124,7 @@ export function KbProvider({ children, store: givenStore }: KbProviderProps) {
         setState({ status: "ready", store, model });
         desktop.log("info", kbLoadSummary("kb reloaded", model, store));
         reportCounts(desktop, store, model);
+        exportForPhone(store, model);
       }
     } catch (error) {
       if (seq === loadSeq.current) {

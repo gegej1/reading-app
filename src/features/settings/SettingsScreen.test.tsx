@@ -73,6 +73,7 @@ const INFO: SettingsInfo = {
   captureShortcut: { setting: "Ctrl+Alt+N", label: "⌃⌥N", registered: true, error: null },
   autostart: false,
   configProblem: null,
+  bridge: null,
 };
 
 function backend(handlers: Record<string, (args: Record<string, unknown> | undefined) => unknown>, active = true) {
@@ -295,6 +296,48 @@ describe("launch at login", () => {
     await waitFor(() => fake.called("settings_set_autostart").length === 1, "the toggle");
     expect(fake.called("settings_set_autostart")[0]?.args).toEqual({ enabled: true });
     await waitFor(() => (container?.querySelector('input[role="switch"]') as HTMLInputElement).checked, "on");
+  });
+});
+
+describe("the iPhone bridge", () => {
+  const BRIDGE = {
+    enabled: true,
+    path: "/Users/someone/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/底色",
+    source: "default" as const,
+    ready: true,
+    problem: null,
+    lastImport: "2026-10-12 09:30 收进 1 条记一笔",
+    shortcuts: "3 个快捷指令已签好，放在「快捷指令」文件夹里",
+    waiting: 0,
+  };
+
+  it("shows where the folder is and turns off when asked", async () => {
+    const info = { ...INFO, bridge: BRIDGE };
+    const fake = backend({
+      settings_get: () => info,
+      settings_set_bridge: (args) => ({ ...info, bridge: { ...BRIDGE, enabled: args?.enabled === true } }),
+      settings_open_folder: () => null,
+    });
+    mount(fake.bridge);
+    await waitFor(() => container?.textContent?.includes("和 iPhone 互通") === true, "the section");
+    const text = container?.textContent ?? "";
+    expect(text).toContain("iCloud 云盘 › 快捷指令 › 底色");
+    expect(text).toContain("收进 1 条记一笔");
+    expect(text).toContain("3 个快捷指令已签好");
+    expect(text).not.toContain("Mobile Documents");
+    const opener = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "在访达中打开");
+    click(opener as HTMLElement);
+    await waitFor(() => fake.called("settings_open_folder").length === 1, "the folder");
+    expect(fake.called("settings_open_folder")[0]?.args).toEqual({ which: "bridge" });
+
+    const toggle = [...(container?.querySelectorAll<HTMLInputElement>('input[role="switch"]') ?? [])].find((input) =>
+      input.closest("label")?.textContent?.includes("iPhone"),
+    );
+    expect(toggle?.checked).toBe(true);
+    click(toggle as HTMLElement);
+    await waitFor(() => fake.called("settings_set_bridge").length === 1, "the switch");
+    expect(fake.called("settings_set_bridge")[0]?.args).toEqual({ enabled: false });
+    await waitFor(() => !(container?.textContent ?? "").includes("正在看着"), "off");
   });
 });
 

@@ -22,6 +22,24 @@ export interface KbFolderCheck {
   remote: RemoteInfo | null;
 }
 
+/** The iPhone bridge (src-tauri/src/bridge/mod.rs, BridgeStatus). */
+export interface BridgeStatus {
+  enabled: boolean;
+  path: string | null;
+  source: "env" | "config" | "default" | null;
+  ready: boolean;
+  problem: string | null;
+  lastImport: string | null;
+  shortcuts: string | null;
+  waiting: number;
+}
+
+/** Where the bridge folder is, in the words of the Files app on the phone. */
+export function bridgePlace(status: BridgeStatus): string {
+  if (status.source === "default") return "iCloud 云盘 › 快捷指令 › 底色";
+  return status.path ?? "没有文件夹";
+}
+
 export interface SettingsInfo {
   version: string;
   run: RunSettingsView;
@@ -31,6 +49,8 @@ export interface SettingsInfo {
   /** Launch at login; null when it cannot be told. */
   autostart: boolean | null;
   configProblem: string | null;
+  /** Null when the app has no bridge (tests). */
+  bridge: BridgeStatus | null;
 }
 
 export interface PickedFolder {

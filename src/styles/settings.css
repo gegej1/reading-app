@@ -435,3 +435,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Facts about the iPhone bridge: folder, state, last import, shortcuts. */
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 10px 0 0;
+  font-size: 13.5px;
+}
+
+.settings-facts dt {
+  color: var(--ink-faint);
+}
+
+.settings-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
