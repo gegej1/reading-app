@@ -394,6 +394,132 @@ describe("runGate: confirmed 底色 entries", () => {
   });
 });
 
+describe("runGate: the user's words in existing precedents", () => {
+  const PRECEDENT = "self/判例/P-004-工具与习惯.md";
+  const P004 = [
+    "---",
+    "类型: 判例",
+    "编号: P-004",
+    "状态: 生效（适用规则待你确认）",
+    "---",
+    "",
+    "# P-004 工具与习惯",
+    "",
+    "## 冲突",
+    "- 统一：省沟通成本",
+    "- 不统一：各组顺手",
+    "",
+    "## 裁决",
+    "各组先用自己顺手的工具。",
+    "",
+    "> 工具是给人用的，不是给表格用的。",
+    "",
+    "## 适用规则（AI 整理，待你确认）",
+    "1. 先问：换工具的成本谁来出？",
+    "",
+    "## 衍生问题（已进待裁决）",
+    "- [[Q-004-工具要不要统一]]",
+    "",
+  ].join("\n");
+  const before = { ...BASE, [PRECEDENT]: P004 };
+  /** A land-rulings run that also did `change` to the precedent. */
+  const run = (change: (after: Record<string, string>) => void) => {
+    const after: Record<string, string> = { ...rulingsAfter(), [PRECEDENT]: P004 };
+    change(after);
+    return runGate(input({ task: "landRulings", before, after }));
+  };
+
+  it("passes when only the AI's sections and the frontmatter changed", () => {
+    const report = run((after) => {
+      after[PRECEDENT] = P004.replace("1. 先问：换工具的成本谁来出？", "1. 先问：换工具的成本谁来出？\n2. 再问：谁天天用它？")
+        .replace("状态: 生效（适用规则待你确认）", "状态: 生效")
+        .replace("- [[Q-004-工具要不要统一]]\n", "- [[Q-004-工具要不要统一]]（已裁决）\n\n");
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.commitPaths).toContain(PRECEDENT);
+  });
+
+  it("passes when blank lines around the 裁决 change but not its words", () => {
+    const report = run((after) => {
+      after[PRECEDENT] = P004.replace("## 裁决\n", "## 裁决\n\n").replace("给表格用的。\n\n", "给表格用的。\n\n\n");
+    });
+    expect(report.violations).toEqual([]);
+  });
+
+  it("fails when one character inside 裁决 changed, and names the file", () => {
+    const report = run((after) => {
+      after[PRECEDENT] = P004.replace("顺手的工具", "顺手的工具们");
+    });
+    expect(report.ok).toBe(false);
+    expect(rules(report.violations)).toEqual(["precedentRuling"]);
+    expect(report.violations[0]?.path).toBe(PRECEDENT);
+    expect(report.violations[0]?.message).toContain(PRECEDENT);
+    expect(report.violations[0]?.message).toContain("裁决");
+  });
+
+  it("fails when only the line endings inside 裁决 changed: it has to stay byte for byte", () => {
+    const crlf = P004.replace("各组先用自己顺手的工具。\n", "各组先用自己顺手的工具。\r\n");
+    const report = runGate(
+      input({ task: "landRulings", before: { ...BASE, [PRECEDENT]: crlf }, after: { ...rulingsAfter(), [PRECEDENT]: P004 } }),
+    );
+    expect(rules(report.violations)).toEqual(["precedentRuling"]);
+  });
+
+  it("fails when the 裁决 section is gone or a second one was added", () => {
+    const gone = run((after) => {
+      after[PRECEDENT] = P004.replace("## 裁决\n", "## 结论\n");
+    });
+    expect(rules(gone.violations)).toEqual(["precedentRuling"]);
+    expect(gone.violations[0]?.message).toContain("不见了");
+
+    const added = run((after) => {
+      after[PRECEDENT] = `${P004}\n## 裁决\nAI 加的新裁决。\n`;
+    });
+    expect(rules(added.violations)).toEqual(["precedentRuling"]);
+  });
+
+  it("fails when an existing precedent is deleted or renamed", () => {
+    const deleted = run((after) => {
+      delete after[PRECEDENT];
+    });
+    expect(rules(deleted.violations)).toEqual(["precedentRuling"]);
+    expect(deleted.violations[0]?.path).toBe(PRECEDENT);
+    expect(deleted.violations[0]?.message).toContain("删");
+
+    const renamed = run((after) => {
+      after["self/判例/P-004-工具与人.md"] = after[PRECEDENT] ?? "";
+      delete after[PRECEDENT];
+    });
+    expect(rules(renamed.violations)).toEqual(["precedentRuling"]);
+    expect(renamed.violations[0]?.path).toBe(PRECEDENT);
+    expect(renamed.violations[0]?.message).toContain("self/判例/P-004-工具与人.md");
+    expect(renamed.violations[0]?.message).toContain("改名");
+  });
+
+  it("accepts a new precedent, whatever its 裁决 says", () => {
+    const report = run((after) => {
+      after["self/判例/P-006-新的判例.md"] = "# P-006 新的判例\n\n## 裁决\n工具先不统一，各组自己选。\n";
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.commitPaths).toContain("self/判例/P-006-新的判例.md");
+  });
+
+  it("cannot check a precedent that is no longer text and says so", () => {
+    const report = runGate(
+      input({ task: "landRulings", before, after: { ...rulingsAfter(), [PRECEDENT]: "binary" }, opaque: { [PRECEDENT]: "binary" } }),
+    );
+    expect(rules(report.violations)).toEqual(["precedentRuling"]);
+    expect(report.violations[0]?.message).toContain("没法核对");
+  });
+
+  it("holds during an ingest too", () => {
+    const after = { ...ingestAfter(), [PRECEDENT]: P004.replace("不是给表格用的", "不是给报表用的") };
+    const report = runGate(input({ before, after }));
+    expect(rules(report.violations)).toEqual(["precedentRuling"]);
+  });
+});
+
 describe("runGate: wikilinks", () => {
   it("flags a new broken link and names where it is", () => {
     const after = { ...ingestAfter(), "wiki/概念/新概念.md": "# 新概念\n\n见 [[不存在的页面]]。\n" };
@@ -411,10 +537,10 @@ describe("runGate: wikilinks", () => {
 
   it("flags links broken by deleting their target", () => {
     const after = ingestAfter();
-    delete after["self/判例/P-001-速度与退路.md"];
+    delete after["wiki/概念/小实验.md"];
     const report = runGate(input({ after }));
     expect(rules(report.violations)).toEqual(["brokenLinks"]);
-    expect(report.violations[0]?.path).toBe("self/底色.md");
+    expect(report.violations[0]?.path).toBe("index.md");
   });
 
   it("only warns about a broken link copied verbatim from a capture into raw/", () => {

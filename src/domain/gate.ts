@@ -9,6 +9,7 @@
 import { DISE_PATH } from "./kb";
 import { diseEntryTexts } from "./dise";
 import { fmString, parseFrontmatter, splitFrontmatter } from "./frontmatter";
+import { precedentRulingTexts } from "./precedents";
 import { parseRuling, type Ruling } from "./rulings";
 import { analyzeLinks, buildLinkIndex, type LinkRef } from "./wikilinks";
 
@@ -66,6 +67,7 @@ export type GateRule =
   | "rawAppendOnly"
   | "queueVerbatim"
   | "confirmedDise"
+  | "precedentRuling"
   | "brokenLinks"
   | "report"
   | "rulingsAnswered"
@@ -105,6 +107,8 @@ const ALLOWED_FOLDERS = ["raw/", "wiki/", "systems/", "self/", "reports/"] as co
 const ALLOWED_FILES = ["index.md", "log.md"] as const;
 const ALLOWED_TEXT = "只能改 raw/、wiki/、systems/、self/、reports/ 和 index.md、log.md";
 const RULING_FILE = /^self\/待裁决\/[^/]+\.md$/;
+const PRECEDENT_FILE = /^self\/判例\/.+\.md$/;
+const RULING_SECTION = '"## 裁决"';
 
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const isMarkdown = (path: string) => path.endsWith(".md");
@@ -349,6 +353,9 @@ export function runGate(input: GateInput): GateReport {
     }
   }
 
+  // The user's words in existing precedents stay exactly as they are.
+  checkPrecedents(input.changes, violation);
+
   // No new broken wikilinks. A link copied verbatim from a queue file into
   // raw/ has to stay as it is: that one is only worth a warning.
   for (const ref of newBrokenLinks(before, after)) {
@@ -450,4 +457,55 @@ function checkRulings(
       warning("rulingsAnswered", file.path, `${file.path} 没写清对象（Q-xxx 或"抽查 …"），没法核对它落到了哪里`);
     }
   }
+}
+
+/**
+ * Every precedent that existed before the run keeps the body of its `## 裁决`
+ * sections byte for byte (AGENTS.md sections 三 and 九) and is neither deleted
+ * nor renamed. New precedents may say anything.
+ */
+function checkPrecedents(
+  changes: readonly GateFile[],
+  violation: (rule: GateRule, path: string | null, message: string) => void,
+) {
+  const words = "这一节是你的原话，一个字都不能改";
+  const added = changes.filter((change) => change.status === "added" && PRECEDENT_FILE.test(change.path));
+  for (const change of changes) {
+    if (change.status === "added" || !PRECEDENT_FILE.test(change.path)) continue;
+    const path = change.path;
+    if (change.status === "deleted") {
+      const old = change.before === null ? null : precedentRulingTexts(change.before);
+      const twin = old
+        ? added.find((candidate) => candidate.after !== null && sameTexts(precedentRulingTexts(candidate.after), old))
+        : undefined;
+      violation(
+        "precedentRuling",
+        path,
+        twin
+          ? `把已有判例 ${path} 改名成了 ${twin.path}（判例里有你的原话，已有判例不能改名；要推翻它就新建一个判例）`
+          : `删除了已有判例 ${path}（判例里有你的原话，已有判例不能删除，也不能改名）`,
+      );
+      continue;
+    }
+    if (change.opaque !== null || change.before === null || change.after === null) {
+      const why = change.opaque ? OPAQUE_TEXT[change.opaque] : "内容读不出来";
+      violation("precedentRuling", path, `没法核对已有判例 ${path} 的${RULING_SECTION}一节（${why}）`);
+      continue;
+    }
+    const before = precedentRulingTexts(change.before);
+    if (before.length === 0) continue;
+    const after = precedentRulingTexts(change.after);
+    if (sameTexts(before, after)) continue;
+    const message =
+      after.length < before.length
+        ? `已有判例 ${path} 的${RULING_SECTION}一节不见了（${words}）`
+        : after.length > before.length && sameTexts(before, after.slice(0, before.length))
+          ? `已有判例 ${path} 多了一节${RULING_SECTION}（已有判例的裁决不能改；要推翻它就新建一个判例）`
+          : `已有判例 ${path} 的${RULING_SECTION}一节被改动了（${words}）`;
+    violation("precedentRuling", path, message);
+  }
+}
+
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((text, index) => text === b[index]);
 }

@@ -1,5 +1,5 @@
-import { fmList, fmString, parseFrontmatter, type FrontmatterData } from "./frontmatter";
-import { firstHeading, splitSections } from "./markdown";
+import { fmList, fmString, parseFrontmatter, splitFrontmatter, type FrontmatterData } from "./frontmatter";
+import { fencedCodeMask, firstHeading, lineCount, parseHeading, splitLines, splitSections } from "./markdown";
 import { basenameOf } from "./wikilinks";
 
 export interface DocSection {
@@ -90,4 +90,44 @@ export function parsePrecedent(path: string, markdown: string): Precedent {
     sections: docSections(body),
     body,
   };
+}
+
+/**
+ * A `## 裁决` heading: the section of a precedent that holds the user's own
+ * words. A trailing note in parentheses is allowed (`## 裁决（2026-10-11）`).
+ */
+const RULING_HEADING = /^裁决(?:\s*[（(][^（）()]*[）)])?$/;
+
+/**
+ * The body of every `## 裁决` section of a precedent, in document order: the
+ * lines after the heading up to the next heading of level 1 or 2, byte for
+ * byte (CR and trailing spaces kept), without the blank lines at either end.
+ * Deeper headings and fenced code stay inside the body; headings inside
+ * fenced code and the frontmatter are not headings. Used by the gate to prove
+ * that a run left the user's words in existing precedents untouched.
+ */
+export function precedentRulingTexts(markdown: string): string[] {
+  const lines = splitLines(markdown);
+  const body = lines.slice(lineCount(splitFrontmatter(markdown).block));
+  const mask = fencedCodeMask(body);
+  const texts: string[] = [];
+  let start = -1;
+
+  const close = (end: number) => {
+    let first = start;
+    let last = end;
+    while (first < last && (body[first] ?? "").trim() === "") first += 1;
+    while (last > first && (body[last - 1] ?? "").trim() === "") last -= 1;
+    texts.push(body.slice(first, last).join("\n"));
+    start = -1;
+  };
+
+  body.forEach((line, index) => {
+    const heading = mask[index] ? null : parseHeading(line);
+    if (!heading || heading.level > 2) return;
+    if (start !== -1) close(index);
+    if (heading.level === 2 && RULING_HEADING.test(heading.text)) start = index + 1;
+  });
+  if (start !== -1) close(body.length);
+  return texts;
 }
