@@ -35,6 +35,12 @@ tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-opener = "2.7.1"
 # The system-wide shortcut that shows the capture window.
 tauri-plugin-global-shortcut = "2.4.1"
+# A notification when an AI run ends while the main window is in the background.
+tauri-plugin-notification = "2.6.0"
+# Launch at login (off unless the user turns it on in the settings).
+tauri-plugin-autostart = "2.7.0"
+# The folder picker for the knowledge base in the settings.
+tauri-plugin-dialog = "2.8.2"
 # Reads the names of the MCP servers in the user's Codex configuration, to
 # switch them off for an AI run (see src/run/engine.rs). Already part of the
 # build through tauri.

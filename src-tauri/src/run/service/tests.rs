@@ -1664,3 +1664,44 @@ fn engine_failures_are_put_in_plain_words() {
     .unwrap()
     .contains("claudePath"));
 }
+
+#[test]
+fn the_history_shows_the_steps_of_any_kept_run() {
+    let world = World::new("run-detail");
+    world.claude(&format!("{INGEST}{RESULT}"));
+    let id = world.start(Task::Ingest);
+    world.finished(&id);
+
+    // The last run comes from memory; its steps were kept on disk as well.
+    let detail = world.service.detail(&id).unwrap();
+    assert_eq!(detail.record.id, id);
+    assert_eq!(detail.steps, world.service.steps());
+    let folder = world.dir.path().join("data/runs").join(&id);
+    let on_disk: Vec<StepEvent> = record::read_json_lines(&folder.join(STEPS_FILE)).unwrap();
+    assert_eq!(on_disk, detail.steps);
+    assert!(on_disk.iter().any(|step| step.step.kind == StepKind::Note));
+
+    // An older run from before steps were kept: read again from the engine's output.
+    let old = "2026-01-02T03-04-05-ingest";
+    let copy = world.dir.path().join("data/runs").join(old);
+    fs::create_dir_all(&copy).unwrap();
+    fs::copy(folder.join(EVENTS_FILE), copy.join(EVENTS_FILE)).unwrap();
+    let mut saved = record::load(&folder).unwrap();
+    saved.id = old.to_string();
+    record::save(&copy, &saved).unwrap();
+    let detail = world.service.detail(old).unwrap();
+    assert_eq!(detail.record.id, old);
+    let shown: Vec<String> = detail
+        .steps
+        .iter()
+        .filter_map(|event| Some(format!("{} {}", event.step.verb.as_deref()?, event.step.target.as_deref()?)))
+        .collect();
+    assert!(shown.contains(&format!("写 {RAW_NEW}")), "{shown:#?}");
+    assert!(detail.steps.iter().all(|event| event.run_id == old && event.elapsed_ms == 0));
+    assert!(detail.steps.windows(2).all(|pair| pair[0].seq + 1 == pair[1].seq));
+
+    // Names that are not runs are never looked up.
+    for bad in ["../data", "nope", ""] {
+        assert!(world.service.detail(bad).is_err(), "{bad:?}");
+    }
+}

@@ -39,6 +39,8 @@ use tauri::{AppHandle, Manager, Runtime, State, Webview};
 use crate::events::{self, KbChanged};
 use crate::kb::lock::KbLock;
 use crate::kb::{changes, files, git, ops, paths, root};
+use crate::run::service::RunService;
+use crate::run::Task;
 use crate::shell_env::ShellEnvState;
 use crate::sync_service::{SyncService, SyncStatus};
 
@@ -130,12 +132,23 @@ fn log_call_at<T>(
     log::log!(level, "{line}");
 }
 
-/// `config.json` in the app config dir, where `kbPath` and `captureShortcut` live.
+/// Environment variable naming another folder for `config.json` and the run
+/// records than `~/Library/Application Support/com.gegej1.dise` (for trying
+/// the app on a copy of the knowledge base without touching the real settings).
+pub const APP_DIR_VAR: &str = "DISE_APP_DIR";
+
+/// The app's own folder: `config.json` and the run records live here.
+pub fn app_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    let chosen = std::env::var_os(APP_DIR_VAR)
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute());
+    chosen.or_else(|| app.path().app_config_dir().ok())
+}
+
+/// `config.json` in the app's folder, where `kbPath`, `captureShortcut` and
+/// the run settings live.
 pub fn config_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    app.path()
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join(root::CONFIG_FILE_NAME))
+    app_dir(app).map(|dir| dir.join(root::CONFIG_FILE_NAME))
 }
 
 /// Resolves the root from `DISE_KB_PATH`, `config.json` or the default.
@@ -351,6 +364,8 @@ impl ScopeObjectMatch for CreateScope {
 
 /// The folder quick captures go to (see `crate::kb::capture`).
 const CAPTURE_FOLDER: &str = "inbox";
+/// The folder of the answers 落裁决 works through.
+const ANSWER_FOLDER: &str = "inbox/裁决";
 
 /// True for a file directly in the capture folder: a quick capture (记一笔).
 pub fn is_capture_path(rel: &str) -> bool {
@@ -358,6 +373,22 @@ pub fn is_capture_path(rel: &str) -> bool {
         folder: CAPTURE_FOLDER.to_string(),
     }
     .matches(rel)
+}
+
+/// True for a new file directly in `inbox/裁决/`: an answer to a ruling or
+/// the reason for rejecting an audit item.
+pub fn is_answer_path(rel: &str) -> bool {
+    rel.strip_prefix(ANSWER_FOLDER)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+}
+
+/// Whether creating `rel` may go ahead while an AI run holds the knowledge
+/// base (`running` is its task). Captures always may, each as a commit of
+/// its own that the run leaves alone; so may answers, except while a
+/// 落裁决 works through their folder. Everything else waits for the run.
+pub fn creates_beside_run(rel: &str, running: Option<Task>) -> bool {
+    is_capture_path(rel) || (is_answer_path(rel) && running != Some(Task::LandRulings))
 }
 
 #[tauri::command]
@@ -390,10 +421,14 @@ pub async fn kb_create<R: Runtime>(
                 let lock = lock.inner().clone();
                 let shell_env = shell_env.inner().clone();
                 let path = path.clone();
+                let running = app
+                    .try_state::<RunService>()
+                    .and_then(|runs| runs.active_task());
                 blocking(move || {
-                    // A quick capture keeps working while an AI run is going
-                    // on; any other new file has to wait for the run to end.
-                    let guard = if is_capture_path(&path) {
+                    // Captures and answers keep working while an AI run is
+                    // going on (see `creates_beside_run`); any other new
+                    // file has to wait for the run to end.
+                    let guard = if creates_beside_run(&path, running) {
                         lock.acquire_beside_job(WRITE_OPERATION, WRITE_WAIT)
                     } else {
                         lock.acquire(WRITE_OPERATION, WRITE_WAIT)
@@ -521,6 +556,30 @@ mod tests {
         assert!(!is_capture_path("inbox/裁决/2026-10-12T14-03-22-mac.md"));
         assert!(!is_capture_path("self/底色.md"));
         assert!(!is_capture_path("index.md"));
+    }
+
+    #[test]
+    fn answers_are_new_files_directly_in_the_answer_folder() {
+        assert!(is_answer_path("inbox/裁决/Q-001-2026-10-12T14-03-22-mac.md"));
+        assert!(!is_answer_path("inbox/裁决/旧/Q-001.md"));
+        assert!(!is_answer_path("inbox/裁决/"));
+        assert!(!is_answer_path("inbox/裁决"));
+        assert!(!is_answer_path("inbox/裁决x/a.md"));
+        assert!(!is_answer_path("inbox/2026-10-12T14-03-22-mac.md"));
+    }
+
+    #[test]
+    fn captures_always_and_answers_mostly_go_through_beside_a_run() {
+        let capture = "inbox/2026-10-12T14-03-22-mac.md";
+        let answer = "inbox/裁决/Q-001-2026-10-12T14-03-22-mac.md";
+        for running in [None, Some(Task::Ingest), Some(Task::LandRulings)] {
+            assert!(creates_beside_run(capture, running), "{running:?}");
+            assert!(!creates_beside_run("self/判例/P-009.md", running), "{running:?}");
+        }
+        assert!(creates_beside_run(answer, None));
+        assert!(creates_beside_run(answer, Some(Task::Ingest)));
+        // 落裁决 works through inbox/裁决/: a new answer waits for it.
+        assert!(!creates_beside_run(answer, Some(Task::LandRulings)));
     }
 
     #[test]

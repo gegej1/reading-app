@@ -39,7 +39,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::engine;
 use super::gate::{self, GateInput, GateIssue, GateReport, RunFacts};
@@ -47,7 +47,7 @@ use super::process::{self, Control, Exit};
 use super::prompt;
 use super::record::{
     self, EngineReport, EventLog, Outcome, Phase, RunRecord, SavedSnapshot, DISCARDED_DIR,
-    FINAL_MESSAGE_FILE, KEEP_RUNS, STDERR_FILE,
+    EVENTS_FILE, FINAL_MESSAGE_FILE, KEEP_RUNS, STDERR_FILE, STEPS_FILE,
 };
 use super::settings::{self, Overrides, RunSettings};
 use super::stream::{Step, StepKind, StreamParser, StreamSummary};
@@ -76,8 +76,8 @@ pub struct StartRequest {
     pub trigger: &'static str,
 }
 
-/// One step of a run, as sent to the windows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One step of a run, as sent to the windows (and kept in `steps.jsonl`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepEvent {
     pub run_id: String,
@@ -87,6 +87,14 @@ pub struct StepEvent {
     pub elapsed_ms: u64,
     #[serde(flatten)]
     pub step: Step,
+}
+
+/// A kept run with its steps, for the history.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDetail {
+    pub record: RunRecord,
+    pub steps: Vec<StepEvent>,
 }
 
 /// What the windows show about runs.
@@ -463,6 +471,11 @@ impl RunService {
         }
     }
 
+    /// The task of the run that holds the knowledge base right now, if any.
+    pub fn active_task(&self) -> Option<Task> {
+        self.state().active.as_ref().map(|active| active.record.task)
+    }
+
     /// The newest steps of the run going on, else of the last one.
     pub fn steps(&self) -> Vec<StepEvent> {
         let state = self.state();
@@ -475,6 +488,59 @@ impl RunService {
     /// The kept runs, newest first.
     pub fn history(&self) -> Vec<RunRecord> {
         record::history(&self.0.dirs.runs)
+    }
+
+    /// One run with its steps: the run going on or the last one from memory,
+    /// an older one from its folder. Runs from before steps were kept get
+    /// their steps from the engine's output (without the app's own notes).
+    pub fn detail(&self, id: &str) -> Result<RunDetail, String> {
+        {
+            let state = self.state();
+            if let Some(active) = state.active.as_ref().filter(|active| active.record.id == id) {
+                return Ok(RunDetail {
+                    record: active.record.clone(),
+                    steps: active.steps.iter().cloned().collect(),
+                });
+            }
+            if let Some(last) = state.last.as_ref().filter(|last| last.id == id) {
+                return Ok(RunDetail {
+                    record: last.clone(),
+                    steps: state.last_steps.clone(),
+                });
+            }
+        }
+        let folder = record::folder_of(&self.0.dirs.runs, id)
+            .ok_or_else(|| "没有这次运行的记录（可能已经被清理了）".to_string())?;
+        let record = record::load(&folder).ok_or_else(|| "这次运行的记录读不出来".to_string())?;
+        let steps = record::read_json_lines(&folder.join(STEPS_FILE))
+            .unwrap_or_else(|| self.steps_from_events(&folder, &record));
+        Ok(RunDetail { record, steps })
+    }
+
+    /// The steps of an old run, read again from its `events.jsonl`.
+    fn steps_from_events(&self, folder: &std::path::Path, record: &RunRecord) -> Vec<StepEvent> {
+        let Ok(events) = fs::read_to_string(folder.join(EVENTS_FILE)) else {
+            return Vec::new();
+        };
+        let root = record::load_snapshot(folder)
+            .map(|saved| saved.root)
+            .or_else(|| (self.0.hooks.root)().ok())
+            .unwrap_or_default();
+        let mut parser = StreamParser::new(record.engine, &root);
+        let mut seq = 0;
+        events
+            .lines()
+            .flat_map(|line| parser.line(line))
+            .map(|step| {
+                seq += 1;
+                StepEvent {
+                    run_id: record.id.clone(),
+                    seq,
+                    elapsed_ms: 0,
+                    step,
+                }
+            })
+            .collect()
     }
 
     /// Tells the app the status, and writes the run's record.
@@ -494,7 +560,8 @@ impl RunService {
         self.notify(Notice::Status(Box::new(self.status())));
     }
 
-    /// Adds a step to the run, tells the app and the log.
+    /// Adds a step to the run, tells the app and the log, and keeps it in the
+    /// run's folder for the history.
     fn step(&self, id: &str, step: Step) {
         let event = self.with_active(id, |active| {
             active.seq += 1;
@@ -508,9 +575,10 @@ impl RunService {
                 active.steps.pop_front();
             }
             active.steps.push_back(event.clone());
-            event
+            (event, active.folder.join(STEPS_FILE))
         });
-        let Some(event) = event else { return };
+        let Some((event, file)) = event else { return };
+        record::append_json_line(&file, &event);
         if let Some(line) = event.step.log_line() {
             log::info!("run {id}: {line}");
         }

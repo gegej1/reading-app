@@ -83,6 +83,7 @@ pub fn capture_item(shortcut: &ShortcutStatus) -> (String, Option<String>) {
 
 /// The parts of the menu that change.
 pub struct TrayState<R: Runtime> {
+    capture: MenuItem<R>,
     status: MenuItem<R>,
     line: Mutex<(Option<Counts>, String)>,
 }
@@ -162,11 +163,29 @@ where
         .build(app)?;
 
     app.manage(TrayState {
+        capture,
         status,
         line: Mutex::new((None, sync_label)),
     });
     log::info!("tray icon created");
     Ok(())
+}
+
+/// The capture shortcut changed (in the settings): the menu shows the new one.
+pub fn set_capture_shortcut<R: Runtime>(app: &AppHandle<R>, shortcut: &ShortcutStatus) {
+    let (text, accelerator) = capture_item(shortcut);
+    let label = shortcut.label.clone();
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(tray) = handle.try_state::<TrayState<R>>() else {
+            return;
+        };
+        let _ = tray.capture.set_text(&text);
+        if tray.capture.set_accelerator(accelerator.as_deref()).is_err() {
+            let _ = tray.capture.set_accelerator(None::<&str>);
+            let _ = tray.capture.set_text(format!("{text}（{label}）"));
+        }
+    });
 }
 
 /// New counts from the main window.

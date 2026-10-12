@@ -14,7 +14,11 @@
 //! - `capture_window`, `shortcut`, `tray`: quick capture (记一笔) from a
 //!   floating slip, a global shortcut and the menu-bar icon;
 //! - `run`, `run_commands`: AI runs (入库, 落裁决): an engine edits the
-//!   knowledge base, the gate checks the result, the app commits it;
+//!   knowledge base, the gate checks the result, the app commits it; a
+//!   notification when one ends while the main window is in the background;
+//! - `settings`, `app_config`: the settings screen (engine, model, budget,
+//!   time limit, knowledge-base folder, capture shortcut, launch at login)
+//!   and saving `config.json`;
 //! - `cli`: `--capture "<text>"`, `--sync`, `--ingest` and `--land-rulings`,
 //!   also handed to a running instance by the single-instance plugin;
 //! - `events`: `kb-changed`, `sync-status`, `run-status` and `run-step` for
@@ -24,6 +28,7 @@
 //! - `window`: closing the window hides it, the Dock icon shows it, ⌘Q quits;
 //! - opener: http(s) links open in the default browser.
 
+mod app_config;
 mod capture_window;
 mod cli;
 mod commands;
@@ -34,6 +39,7 @@ mod logging;
 mod process_group;
 mod run;
 mod run_commands;
+mod settings;
 pub mod shell_env;
 mod shortcut;
 mod sync_service;
@@ -78,6 +84,16 @@ pub fn run() {
         // Shortcuts are registered in `setup`, where a failure can be reported
         // instead of stopping the app.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Used from Rust only: a notification when a run ends in the background,
+        // the folder picker of the settings, and launch at login (off until the
+        // user turns it on; a Launch Agent named after the app's identifier).
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("com.gegej1.dise")
+                .build(),
+        )
         .on_window_event(window::on_window_event)
         .setup(move |app| {
             setup(app.handle(), &request);
@@ -121,7 +137,8 @@ fn setup<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
     if let Err(error) = tray::create(app, &shortcut, on_tray_action) {
         log::error!("tray icon could not be created: {error}");
     }
-    app.manage(shortcut);
+    app.manage(shortcut::ShortcutHolder::new(shortcut));
+    on_notification_click(app);
 
     service.start();
     perform(app, request);
@@ -129,6 +146,29 @@ fn setup<R: Runtime>(app: &AppHandle<R>, request: &CliRequest) {
         log::info!("started for the command line: staying in the menu bar");
     } else {
         window::show_main(app);
+    }
+}
+
+/// A click on a notification about a run shows the main window with the
+/// run's result.
+fn on_notification_click<R: Runtime>(app: &AppHandle<R>) {
+    use tauri_plugin_notification::NotificationExt;
+    if app
+        .try_state::<tauri_plugin_notification::Notification<R>>()
+        .is_none()
+    {
+        return;
+    }
+    let handle = app.clone();
+    let registered = app.notification().on_action(move |performed| {
+        if performed.action_id() == "tap" {
+            log::info!("notification clicked: showing the result of the run");
+            window::show_main(&handle);
+            events::run_show(&handle);
+        }
+    });
+    if let Err(error) = registered {
+        log::warn!("notification clicks are not handled: {error}");
     }
 }
 
@@ -296,6 +336,7 @@ fn register<R: Runtime>(
         .manage(lock)
         .manage(shell_env)
         .manage(capture_window::PreviousApp::default())
+        .manage(run_commands::EndNotices::default())
         .invoke_handler(tauri::generate_handler![
             commands::kb_root,
             commands::kb_list,
@@ -319,7 +360,16 @@ fn register<R: Runtime>(
             run_commands::run_keep,
             run_commands::run_recheck,
             run_commands::run_history,
+            run_commands::run_record,
             run_commands::run_settings,
+            settings::settings_get,
+            settings::settings_save_ai,
+            settings::settings_check_kb,
+            settings::settings_pick_kb,
+            settings::settings_set_kb,
+            settings::settings_set_shortcut,
+            settings::settings_set_autostart,
+            settings::settings_open_folder,
         ])
 }
 
@@ -373,8 +423,13 @@ mod ipc_tests {
         git(kb.path(), &["add", "--", "self/底色.md", "AGENTS.md"]);
         git(kb.path(), &["commit", "-q", "-m", "init"]);
 
-        // The only test that touches the process environment.
+        // The only test that touches the process environment. The app's own
+        // folder (config.json, run records) is a temporary one too, so the
+        // test never reads or writes the real settings.
         std::env::set_var(crate::kb::root::ENV_VAR, kb.path());
+        let app_dir = TempDir::new("ipc-app-dir");
+        std::env::set_var(crate::commands::APP_DIR_VAR, app_dir.path());
+        app_dir.write("config.json", r#"{"kept": {"by": "hand"}, "budgetUsd": 3}"#);
 
         // The test process already has a working git: use its environment
         // instead of running the user's login shell.
@@ -596,13 +651,33 @@ mod ipc_tests {
         let checking = wait_for("checking");
         let attempt = checking["gateAttempt"].clone();
         assert_eq!(attempt, 1);
-        // A write of an existing file is refused while the run is on.
+        // A write of an existing file is refused while the run is on …
         let busy = denied(invoke(
             &main,
             "kb_write",
             json!({ "path": "self/底色.md", "content": "x", "message": "m" }),
         ));
         assert!(busy.contains("知识库正忙：正在入库"), "{busy}");
+        // … and so is any other new file, but an answer goes in beside the
+        // ingest as a commit of its own that the run leaves alone.
+        let busy = denied(invoke(
+            &main,
+            "kb_create",
+            json!({ "path": "self/判例/P-009-新的.md", "content": "x\n", "message": "m" }),
+        ));
+        assert!(busy.contains("知识库正忙：正在入库"), "{busy}");
+        let answered = invoke(
+            &main,
+            "kb_create",
+            json!({
+                "path": "inbox/裁决/Q-001-2026-10-12T14-03-24-mac.md",
+                "content": "---\n对象: Q-001\n时间: 2026-10-12T14:03:24+08:00\n来源: mac\n---\n\n先这样。\n",
+                "message": "收件箱：回答 Q-001（mac）",
+            }),
+        )
+        .unwrap();
+        assert_eq!(answered["committed"], true);
+        assert_eq!(commit_count(kb.path()), 4);
         let input = invoke(
             &main,
             "run_gate_input",
@@ -642,14 +717,90 @@ mod ipc_tests {
         .unwrap();
         let done = wait_for("idle");
         assert_eq!(done["run"]["outcome"], "committed", "{done}");
-        assert_eq!(commit_count(kb.path()), 4);
+        assert_eq!(commit_count(kb.path()), 5);
         assert_eq!(
             git(kb.path(), &["log", "-1", "--format=%s"]),
             "入库：1 条（Claude）"
         );
         assert!(!kb.path().join(&queued).exists());
+        // The answer made during the run is still waiting for 落裁决.
+        assert!(kb
+            .path()
+            .join("inbox/裁决/Q-001-2026-10-12T14-03-24-mac.md")
+            .exists());
         assert_eq!(invoke(&main, "run_history", json!({})).unwrap()[0]["id"], run_id.as_str());
         assert!(!invoke(&main, "run_steps", json!({})).unwrap().as_array().unwrap().is_empty());
+        // One run with its steps, which were also kept on disk.
+        let detail = invoke(&main, "run_record", json!({ "runId": run_id })).unwrap();
+        assert_eq!(detail["record"]["id"], run_id.as_str());
+        let steps = detail["steps"].as_array().unwrap();
+        assert!(steps.iter().any(|step| step["kind"] == "note"), "{detail}");
+        assert!(steps.iter().all(|step| step["runId"] == run_id.as_str()));
+        let kept = std::fs::read_to_string(scratch.path().join("runs").join(&run_id).join("steps.jsonl"))
+            .unwrap();
+        assert_eq!(kept.lines().count(), steps.len());
+        for bad in ["../runs", "no-such-run"] {
+            let refused = denied(invoke(&main, "run_record", json!({ "runId": bad })));
+            assert!(refused.contains("没有这次运行的记录"), "{bad}: {refused}");
+        }
+
+        // The settings screen: what it shows, and saving keeps unknown keys.
+        let shown = invoke(&main, "settings_get", json!({})).unwrap();
+        assert_eq!(shown["version"], "0.1.0");
+        assert_eq!(shown["kb"]["source"], "env");
+        assert_eq!(shown["kb"]["check"]["ok"], true, "{shown}");
+        assert_eq!(shown["kb"]["check"]["hasRules"], true);
+        assert_eq!(shown["run"]["budgetUsd"], 3.0);
+        assert_eq!(shown["autostart"], Value::Null);
+        assert_eq!(shown["configProblem"], Value::Null);
+        let saved = invoke(
+            &main,
+            "settings_save_ai",
+            json!({ "settings": { "engine": "codex", "model": " ", "budgetUsd": 2, "runTimeoutMinutes": 5 } }),
+        )
+        .unwrap();
+        assert_eq!(saved["run"]["engine"], "codex");
+        assert_eq!(saved["run"]["model"], Value::Null);
+        assert_eq!(saved["run"]["runTimeoutMinutes"], 5.0);
+        let config: Value = serde_json::from_str(
+            &std::fs::read_to_string(app_dir.path().join("config.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config,
+            json!({ "kept": {"by": "hand"}, "budgetUsd": 2, "engine": "codex", "runTimeoutMinutes": 5 })
+        );
+        let refused = denied(invoke(
+            &main,
+            "settings_save_ai",
+            json!({ "settings": { "budgetUsd": -1 } }),
+        ));
+        assert!(refused.contains("花费上限"), "{refused}");
+        let plain = TempDir::new("ipc-not-a-repo");
+        let check = invoke(&main, "settings_check_kb", json!({ "path": plain.path() })).unwrap();
+        assert_eq!(check["ok"], false);
+        assert!(check["problem"].as_str().unwrap().contains("不是 git 仓库"));
+        let refused = denied(invoke(&main, "settings_set_kb", json!({ "path": plain.path() })));
+        assert!(refused.contains("不是 git 仓库"), "{refused}");
+        let moved = invoke(&main, "settings_set_kb", json!({ "path": kb.path() })).unwrap();
+        assert_eq!(moved["kb"]["check"]["ok"], true);
+        let config: Value = serde_json::from_str(
+            &std::fs::read_to_string(app_dir.path().join("config.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(config["kbPath"].as_str().unwrap().ends_with(
+            kb.path().file_name().unwrap().to_str().unwrap()
+        ));
+        assert_eq!(config["kept"], json!({"by": "hand"}));
+        // No shortcut, no launch at login in the mock app: said in plain words.
+        let refused = denied(invoke(&main, "settings_set_shortcut", json!({ "setting": "Ctrl+Alt+K" })));
+        assert!(refused.contains("快捷键"), "{refused}");
+        let refused = denied(invoke(&main, "settings_set_shortcut", json!({ "setting": "Cmd+Space" })));
+        assert!(refused.contains("Spotlight"), "{refused}");
+        let refused = denied(invoke(&main, "settings_set_autostart", json!({ "enabled": true })));
+        assert!(refused.contains("开机启动"), "{refused}");
+        let refused = denied(invoke(&main, "settings_open_folder", json!({ "which": "desktop" })));
+        assert!(refused.contains("不认识"), "{refused}");
 
         // The capture window may only create files directly in inbox/.
         let capture = WebviewWindowBuilder::new(&app, "capture", Default::default())
@@ -666,7 +817,7 @@ mod ipc_tests {
         )
         .unwrap();
         assert_eq!(saved["committed"], true);
-        assert_eq!(commit_count(kb.path()), 5);
+        assert_eq!(commit_count(kb.path()), 6);
         for path in ["self/新的.md", "inbox/裁决/2026-10-12-Q-001.md", "index.md"] {
             let refused = denied(invoke(
                 &capture,
@@ -701,12 +852,21 @@ mod ipc_tests {
             ("run_discard", json!({ "runId": "x" })),
             ("run_keep", json!({ "runId": "x" })),
             ("run_recheck", json!({ "runId": "x" })),
+            ("run_record", json!({ "runId": "x" })),
+            ("settings_get", json!({})),
+            ("settings_save_ai", json!({ "settings": {} })),
+            ("settings_check_kb", json!({ "path": "/" })),
+            ("settings_pick_kb", json!({})),
+            ("settings_set_kb", json!({ "path": "/" })),
+            ("settings_set_shortcut", json!({ "setting": "Ctrl+Alt+K" })),
+            ("settings_set_autostart", json!({ "enabled": true })),
+            ("settings_open_folder", json!({ "which": "logs" })),
         ] {
             let refused = denied(invoke(&capture, cmd, args));
             assert!(refused.contains("not allowed"), "{cmd}: {refused}");
         }
         invoke(&capture, "capture_hide", json!({})).unwrap();
-        assert_eq!(commit_count(kb.path()), 5);
+        assert_eq!(commit_count(kb.path()), 6);
 
         // Any other window gets nothing.
         let other = WebviewWindowBuilder::new(&app, "other", Default::default())

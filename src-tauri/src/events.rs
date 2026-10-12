@@ -8,11 +8,12 @@
 //! | `capture-shown` | –                             | the capture window was shown (to that window only) |
 //! | `run-status`    | `RunStatus` (`run::service`)  | an AI run started, moved to its next phase or ended |
 //! | `run-step`      | `StepEvent` (`run::service`)  | one step of the run going on (a tool call, a note, …) |
+//! | `run-show`      | –                             | the user clicked the notification about a run (show its result) |
 //!
-//! `reason` is `write`, `create`, `capture` (from the command line), `sync`
-//! or `run` (an AI run committed or discarded its changes); `window` is the
-//! label of the window that made the change, so it can skip the reload it
-//! already does itself.
+//! `reason` is `write`, `create`, `capture` (from the command line), `sync`,
+//! `run` (an AI run committed or discarded its changes) or `settings` (the
+//! knowledge-base folder changed); `window` is the label of the window that
+//! made the change, so it can skip the reload it already does itself.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -24,6 +25,7 @@ pub const KB_CHANGED: &str = "kb-changed";
 pub const SYNC_STATUS: &str = "sync-status";
 pub const RUN_STATUS: &str = "run-status";
 pub const RUN_STEP: &str = "run-step";
+pub const RUN_SHOW: &str = "run-show";
 
 /// Payload of `kb-changed`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -71,6 +73,13 @@ pub fn run_status<R: Runtime>(app: &AppHandle<R>, status: &RunStatus) {
 pub fn run_step<R: Runtime>(app: &AppHandle<R>, step: &StepEvent) {
     if let Err(error) = app.emit(RUN_STEP, step) {
         log::warn!("could not send {RUN_STEP}: {error}");
+    }
+}
+
+/// Asks the main window to show the result of the last run.
+pub fn run_show<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = app.emit(RUN_SHOW, ()) {
+        log::warn!("could not send {RUN_SHOW}: {error}");
     }
 }
 

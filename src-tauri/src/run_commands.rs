@@ -12,13 +12,17 @@
 //! | `run_keep`        | `runId`                      | status; commits although the check did not pass  |
 //! | `run_recheck`     | `runId`                      | status; checks the run's changes again           |
 //! | `run_history`     | –                            | the kept runs, newest first                      |
+//! | `run_record`      | `runId`                      | one kept run with its steps                      |
 //! | `run_settings`    | –                            | the engine settings in effect                    |
 //!
 //! `task` is `ingest` or `landRulings`; `engine` is `claude` or `codex`.
 //! While a run goes on the backend sends `run-status` and `run-step` (see
-//! `crate::events`). Errors are user-facing Chinese strings.
+//! `crate::events`). When a run ends (or waits for a decision) while the main
+//! window is not in front, a notification says so; clicking it shows the
+//! result. Errors are user-facing Chinese strings.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -28,10 +32,11 @@ use crate::events::{self, KbChanged};
 use crate::kb::lock::KbLock;
 use crate::kb::sync::{SyncReport, SyncState};
 use crate::run::gate::{GateInput, GateReport};
-use crate::run::record::RunRecord;
+use crate::run::record::{Outcome, Phase, RunRecord};
 use crate::run::service::{
-    Hooks, Notice, RunDirs, RunService, RunStatus, RunTiming, StartRequest, StepEvent,
+    Hooks, Notice, RunDetail, RunDirs, RunService, RunStatus, RunTiming, StartRequest, StepEvent,
 };
+use crate::window;
 use crate::run::settings::{self, Overrides, SettingsView};
 use crate::run::{EngineKind, Task};
 use crate::shell_env::ShellEnvState;
@@ -44,10 +49,8 @@ const RUNS_DIR: &str = "runs";
 /// temporary auth file in a private folder of its own below the user's temp
 /// folder, and what it has to say goes to the windows as events.
 pub fn service<R: Runtime>(app: &AppHandle<R>) -> Result<RunService, String> {
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("找不到 App 的数据文件夹：{error}"))?;
+    let data =
+        commands::app_dir(app).ok_or_else(|| "找不到 App 的数据文件夹".to_string())?;
     let dirs = RunDirs {
         runs: data.join(RUNS_DIR),
         // The app's temp folder is shared with the webview's caches.
@@ -83,9 +86,104 @@ fn sync_before_run<R: Runtime>(app: &AppHandle<R>) -> SyncReport {
         .unwrap_or_else(|| SyncReport::stopped(SyncState::NoUpstream, None))
 }
 
+/// The end of a run a status announces: the run finished, or it waits for a
+/// person to decide about its result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ending {
+    pub run_id: String,
+    /// `Finished` or `NeedsDecision`.
+    pub phase: Phase,
+    pub title: String,
+    pub body: String,
+}
+
+/// Longest text of a notification.
+const MAX_NOTICE: usize = 140;
+
+/// What a notification says about `status`, if it announces an ending.
+pub fn ending(status: &RunStatus) -> Option<Ending> {
+    let run: &RunRecord = status.run.as_ref()?;
+    let phase = match (status.phase, run.phase) {
+        (Phase::NeedsDecision, _) => Phase::NeedsDecision,
+        (Phase::Idle, Phase::Finished) => Phase::Finished,
+        _ => return None,
+    };
+    let task = run.task.label();
+    let title = match (phase, run.outcome) {
+        (Phase::NeedsDecision, _) => format!("{task}没通过检查，等你处理"),
+        (_, Some(Outcome::Committed)) => format!("{task}完成了"),
+        (_, Some(Outcome::Kept)) => format!("{task}已按你的要求提交"),
+        (_, Some(Outcome::Discarded)) => format!("{task}的改动已经丢弃"),
+        (_, Some(Outcome::NothingToDo)) => format!("{task}：队列是空的"),
+        (_, Some(Outcome::Refused)) => format!("{task}没有开始"),
+        (_, Some(Outcome::Cancelled)) => format!("{task}已停止"),
+        _ => format!("{task}没有完成"),
+    };
+    let message = run.message.clone().unwrap_or_default();
+    let mut body: String = message.chars().take(MAX_NOTICE).collect();
+    if message.chars().count() > MAX_NOTICE {
+        body.push('…');
+    }
+    Some(Ending {
+        run_id: run.id.clone(),
+        phase,
+        title,
+        body,
+    })
+}
+
+/// The last ending a notification was considered for, so each is told once.
+#[derive(Default)]
+pub struct EndNotices(Mutex<Option<(String, Phase)>>);
+
+impl EndNotices {
+    /// True the first time `ending` is seen.
+    pub fn first_time(&self, ending: &Ending) -> bool {
+        let mut last = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let key = (ending.run_id.clone(), ending.phase);
+        if last.as_ref() == Some(&key) {
+            return false;
+        }
+        *last = Some(key);
+        true
+    }
+}
+
+/// Tells the user with a notification that a run ended, unless they are
+/// looking at the main window anyway.
+fn notify_ending<R: Runtime>(app: &AppHandle<R>, status: &RunStatus) {
+    use tauri_plugin_notification::NotificationExt;
+    let Some(ending) = ending(status) else { return };
+    let first = app
+        .try_state::<EndNotices>()
+        .is_some_and(|seen| seen.first_time(&ending));
+    if !first {
+        return;
+    }
+    let in_front = app.get_webview_window(window::MAIN).is_some_and(|main| {
+        main.is_visible().unwrap_or(false) && main.is_focused().unwrap_or(false)
+    });
+    if in_front || app.try_state::<tauri_plugin_notification::Notification<R>>().is_none() {
+        return;
+    }
+    match app
+        .notification()
+        .builder()
+        .title(&ending.title)
+        .body(&ending.body)
+        .show()
+    {
+        Ok(()) => log::info!("run {}: notification sent", ending.run_id),
+        Err(error) => log::warn!("run {}: notification failed: {error}", ending.run_id),
+    }
+}
+
 fn on_notice<R: Runtime>(app: &AppHandle<R>, notice: Notice) {
     match notice {
-        Notice::Status(status) => events::run_status(app, &status),
+        Notice::Status(status) => {
+            events::run_status(app, &status);
+            notify_ending(app, &status);
+        }
         Notice::Step(step) => events::run_step(app, &step),
         // A commit or a discard: the windows reload and a sync follows.
         Notice::Ended {
@@ -272,6 +370,15 @@ pub async fn run_history(service: State<'_, RunService>) -> Result<Vec<RunRecord
 }
 
 #[tauri::command]
+pub async fn run_record(service: State<'_, RunService>, run_id: String) -> Result<RunDetail, String> {
+    let service = service.inner().clone();
+    call("run_record", Some(run_id.clone()), move || {
+        service.detail(&run_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn run_settings<R: Runtime>(
     app: AppHandle<R>,
     shell_env: State<'_, ShellEnvState>,
@@ -293,6 +400,61 @@ pub async fn run_settings<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run::{EngineKind, Task};
+
+    fn status(phase: Phase, run_phase: Phase, outcome: Option<Outcome>) -> RunStatus {
+        let mut run = RunRecord::new(
+            "2026-10-12T14-30-05-ingest".into(),
+            Task::Ingest,
+            EngineKind::Claude,
+            None,
+            "ui",
+            "2026-10-12".into(),
+        );
+        run.phase = run_phase;
+        run.outcome = outcome;
+        run.message = Some("通过检查：3 条随手记都逐字进了原料层，提交 5 个文件，已提交 abc1234567".into());
+        RunStatus {
+            phase,
+            run: Some(run),
+            gate_attempt: 0,
+        }
+    }
+
+    #[test]
+    fn a_notification_announces_each_ending_once() {
+        assert_eq!(ending(&status(Phase::Running, Phase::Running, None)), None);
+        assert_eq!(ending(&status(Phase::Checking, Phase::Checking, None)), None);
+        let done = ending(&status(Phase::Idle, Phase::Finished, Some(Outcome::Committed))).unwrap();
+        assert_eq!(done.title, "入库完成了");
+        assert!(done.body.starts_with("通过检查"));
+        assert_eq!(done.phase, Phase::Finished);
+        let waiting = ending(&status(Phase::NeedsDecision, Phase::NeedsDecision, None)).unwrap();
+        assert_eq!(waiting.title, "入库没通过检查，等你处理");
+        let failed = ending(&status(Phase::Idle, Phase::Finished, Some(Outcome::Failed))).unwrap();
+        assert_eq!(failed.title, "入库没有完成");
+        // Idle without a run that ended: nothing to tell.
+        assert_eq!(
+            ending(&RunStatus {
+                phase: Phase::Idle,
+                run: None,
+                gate_attempt: 0
+            }),
+            None
+        );
+
+        let seen = EndNotices::default();
+        assert!(seen.first_time(&waiting));
+        assert!(!seen.first_time(&waiting));
+        assert!(seen.first_time(&done));
+        assert!(!seen.first_time(&done));
+
+        let mut long = status(Phase::Idle, Phase::Finished, Some(Outcome::Failed));
+        long.run.as_mut().unwrap().message = Some("很长".repeat(100));
+        let body = ending(&long).unwrap().body;
+        assert_eq!(body.chars().count(), MAX_NOTICE + 1);
+        assert!(body.ends_with('…'));
+    }
 
     #[test]
     fn reads_the_engine_and_model_a_run_was_asked_for() {

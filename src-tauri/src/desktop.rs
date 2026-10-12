@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::capture_window;
-use crate::shortcut::ShortcutStatus;
+use crate::shortcut::{ShortcutHolder, ShortcutStatus};
 use crate::tray::{self, Counts};
 
 #[tauri::command]
@@ -43,7 +43,7 @@ pub struct DesktopInfo {
 pub fn desktop_info<R: Runtime>(app: AppHandle<R>) -> DesktopInfo {
     DesktopInfo {
         capture_shortcut: app
-            .try_state::<ShortcutStatus>()
-            .map(|status| status.inner().clone()),
+            .try_state::<ShortcutHolder>()
+            .map(|holder| holder.get()),
     }
 }

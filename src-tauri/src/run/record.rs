@@ -5,6 +5,7 @@
 //! runs/2026-10-12T14-30-05-ingest/
 //!   run.json            what was asked, how it went, cost, the gate's report
 //!   events.jsonl        the engine's output, line by line as it arrived
+//!   steps.jsonl         the steps the windows were shown, one JSON object per line
 //!   snapshot.json       where the run started (needed to discard or restore it)
 //!   stderr.txt          the end of the engine's error output, if any
 //!   final-message.txt   Codex's last reply
@@ -34,6 +35,7 @@ use crate::kb::lock::NotedCommit;
 pub const KEEP_RUNS: usize = 20;
 pub const RUN_FILE: &str = "run.json";
 pub const EVENTS_FILE: &str = "events.jsonl";
+pub const STEPS_FILE: &str = "steps.jsonl";
 pub const SNAPSHOT_FILE: &str = "snapshot.json";
 pub const STDERR_FILE: &str = "stderr.txt";
 pub const FINAL_MESSAGE_FILE: &str = "final-message.txt";
@@ -275,6 +277,54 @@ pub fn prune(runs_dir: &Path, keep: usize) -> usize {
         .count()
 }
 
+/// True for the name of a run folder as [`create_run_folder`] makes them
+/// (`2026-10-12T14-30-05-ingest`, `…-2`): anything else (a path, `..`) is
+/// never looked up.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && !id.starts_with(['-', '.'])
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// The folder of the kept run `id`, if `id` is a run's name and the folder exists.
+pub fn folder_of(runs_dir: &Path, id: &str) -> Option<PathBuf> {
+    if !valid_id(id) {
+        return None;
+    }
+    let folder = runs_dir.join(id);
+    folder.is_dir().then_some(folder)
+}
+
+/// Appends one JSON object as a line to `file` (created when missing). A line
+/// that cannot be written is lost; the run goes on.
+pub fn append_json_line<T: Serialize>(file: &Path, value: &T) {
+    let Ok(mut line) = serde_json::to_string(value) else {
+        return;
+    };
+    line.push('\n');
+    let written = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .and_then(|mut out| out.write_all(line.as_bytes()));
+    if let Err(error) = written {
+        log::warn!("run: could not append to {}: {error}", file.display());
+    }
+}
+
+/// The JSON lines of `file` that read as `T`; other lines are skipped.
+pub fn read_json_lines<T: for<'de> Deserialize<'de>>(file: &Path) -> Option<Vec<T>> {
+    let text = fs::read_to_string(file).ok()?;
+    Some(
+        text.lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect(),
+    )
+}
+
 /// Appends the engine's output lines to `events.jsonl`.
 pub struct EventLog(Option<BufWriter<File>>);
 
@@ -457,6 +507,34 @@ mod tests {
         // A folder that does not exist: the lines are dropped, nothing fails.
         let mut nowhere = EventLog::open(&dir.path().join("missing"));
         nowhere.append("x");
+    }
+
+    #[test]
+    fn only_run_names_are_looked_up() {
+        let dir = TempDir::new("record-ids");
+        let runs = dir.path().join("runs");
+        let id = create_run_folder(&runs, &at(), Task::Ingest).unwrap();
+        assert_eq!(folder_of(&runs, &id), Some(runs.join(&id)));
+        assert!(valid_id("2026-10-12T14-30-05-land-rulings-2"));
+        for bad in ["", "..", "../runs", "a/b", ".hidden", "-x", "运行", "a b", &"x".repeat(81)] {
+            assert!(!valid_id(bad), "{bad:?}");
+            assert_eq!(folder_of(&runs, bad), None, "{bad:?}");
+        }
+        assert_eq!(folder_of(&runs, "2026-01-01T00-00-00-ingest"), None);
+    }
+
+    #[test]
+    fn json_lines_are_appended_and_read_back() {
+        let dir = TempDir::new("record-lines");
+        let file = dir.path().join(STEPS_FILE);
+        assert_eq!(read_json_lines::<serde_json::Value>(&file), None);
+        append_json_line(&file, &serde_json::json!({ "seq": 1 }));
+        fs::write(&file, format!("{}not json\n", fs::read_to_string(&file).unwrap())).unwrap();
+        append_json_line(&file, &serde_json::json!({ "seq": 2 }));
+        let lines: Vec<serde_json::Value> = read_json_lines(&file).unwrap();
+        assert_eq!(lines, [serde_json::json!({ "seq": 1 }), serde_json::json!({ "seq": 2 })]);
+        // A folder that does not exist: nothing is written, nothing fails.
+        append_json_line(&dir.path().join("missing").join(STEPS_FILE), &1);
     }
 
     #[test]
