@@ -309,7 +309,17 @@ describe("the iPhone bridge", () => {
     lastImport: "2026-10-12 09:30 收进 1 条记一笔",
     shortcuts: "3 个快捷指令已签好，放在「快捷指令」文件夹里",
     waiting: 0,
+    importProblem: null,
   };
+
+  it("warns when nothing can be imported", async () => {
+    const problem = "导入记录写不进去（Permission denied），所以暂时不收手机上的文件，免得同一条收两次。";
+    const info = { ...INFO, bridge: { ...BRIDGE, importProblem: problem } };
+    mount(backend({ settings_get: () => info }).bridge);
+    await waitFor(() => container?.textContent?.includes("和 iPhone 互通") === true, "the section");
+    const alert = [...(container?.querySelectorAll('[role="alert"]') ?? [])].find((el) => el.textContent === problem);
+    expect(alert).toBeDefined();
+  });
 
   it("shows where the folder is and turns off when asked", async () => {
     const info = { ...INFO, bridge: BRIDGE };
@@ -325,6 +335,7 @@ describe("the iPhone bridge", () => {
     expect(text).toContain("收进 1 条记一笔");
     expect(text).toContain("3 个快捷指令已签好");
     expect(text).not.toContain("Mobile Documents");
+    expect(text).not.toContain("注意");
     const opener = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "在访达中打开");
     click(opener as HTMLElement);
     await waitFor(() => fake.called("settings_open_folder").length === 1, "the folder");

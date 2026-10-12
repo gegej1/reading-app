@@ -508,6 +508,14 @@ function BridgeSettings({
                   : "正在看着，手机上的新文件会自动收进来"
                 : "正在准备…"}
           </dd>
+          {status.importProblem ? (
+            <>
+              <dt>注意</dt>
+              <dd className="field__error" role="alert">
+                {status.importProblem}
+              </dd>
+            </>
+          ) : null}
           {status.lastImport ? (
             <>
               <dt>最近</dt>

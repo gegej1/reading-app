@@ -16,6 +16,7 @@
 //! (FSEvents), every 30 seconds, and when the main window gains focus.
 //! Where the folder is and whether the bridge is on: see `folder`.
 
+pub mod earlier;
 pub mod export;
 pub mod folder;
 pub mod import;
@@ -110,6 +111,9 @@ pub struct BridgeStatus {
     pub shortcuts: Option<String>,
     /// Files waiting in `收件/` (busy knowledge base, 落裁决, still syncing).
     pub waiting: usize,
+    /// Why nothing could be imported: the import record cannot be read or
+    /// written.
+    pub import_problem: Option<String>,
 }
 
 /// What an export did.
@@ -159,6 +163,10 @@ struct State {
     reported: HashMap<String, String>,
     /// When a placeholder was last asked to download.
     downloads: HashMap<PathBuf, Instant>,
+    /// The import record, read once and kept.
+    ledger: Option<ledger::Ledger>,
+    /// Quick looks at unfinished files, kept from pass to pass.
+    retries: import::Retries,
 }
 
 fn relock<T>(result: Result<T, PoisonError<T>>) -> T {
@@ -421,14 +429,40 @@ impl BridgeService {
                 return;
             }
         };
+        let incoming = import::scan(&layout);
+        if incoming.is_empty() {
+            let mut state = self.state();
+            state.reported.clear();
+            state.downloads.clear();
+            state.retries = import::Retries::default();
+            state.status.waiting = 0;
+            state.status.import_problem = None;
+            return;
+        }
         let env = &self.0.env.get().env;
-        let mut ledger = ledger::Ledger::load(
-            self.0
-                .hooks
-                .app_dir
-                .as_ref()
-                .map(|dir| dir.join(ledger::FILE_NAME)),
-        );
+        let (ledger, retries) = {
+            let mut state = self.state();
+            (state.ledger.take(), std::mem::take(&mut state.retries))
+        };
+        let mut retries = retries;
+        let ledger = match ledger {
+            Some(ledger) => Ok(ledger),
+            None => ledger::Ledger::load(
+                self.0
+                    .hooks
+                    .app_dir
+                    .as_ref()
+                    .map(|dir| dir.join(ledger::FILE_NAME)),
+            ),
+        };
+        let mut ledger = match ledger {
+            Ok(ledger) => ledger,
+            Err(problem) => {
+                self.record_problem(&problem);
+                self.state().retries = retries;
+                return;
+            }
+        };
         let running = || (self.0.hooks.running)();
         let mut download = |path: &Path| {
             let mut state = self.state();
@@ -452,8 +486,26 @@ impl BridgeService {
             settle: self.0.timing.settle,
             lock_wait: import::LOCK_WAIT,
             download: &mut download,
+            retries: &mut retries,
         };
-        let pass = import::run_pass(&layout, &mut ctx);
+        let pass = import::run_pass(&incoming, &mut ctx);
+        {
+            let mut state = self.state();
+            state.ledger = Some(ledger);
+            state.retries = retries;
+            let present: Vec<&Path> = incoming.iter().map(|file| file.path.as_path()).collect();
+            state
+                .downloads
+                .retain(|path, _| present.contains(&path.as_path()));
+        }
+        match &pass.record_problem {
+            Some(problem) => self.record_problem(problem),
+            None => {
+                let mut state = self.state();
+                state.status.import_problem = None;
+                state.reported.remove("record");
+            }
+        }
 
         let mut captures = 0;
         let mut answers = 0;
@@ -513,7 +565,7 @@ impl BridgeService {
             let mut state = self.state();
             state
                 .reported
-                .retain(|id, _| id == "kb" || seen.contains(id));
+                .retain(|id, _| id == "kb" || id == "record" || seen.contains(id));
             state.reported.remove("kb");
             state.status.waiting = waiting;
             if captures + answers > 0 {
@@ -541,6 +593,19 @@ impl BridgeService {
         if pass.retry_soon {
             self.0.signal.schedule(self.0.timing.settle_retry);
         }
+    }
+
+    /// The import record cannot be read or written: nothing is imported
+    /// until it can. Logged once and shown in 设置 › iPhone.
+    fn record_problem(&self, problem: &str) {
+        self.report_once(
+            "record",
+            &format!("nothing imported in this pass, the import record is not usable: {problem}"),
+            log::Level::Warn,
+        );
+        self.state().status.import_problem = Some(format!(
+            "{problem}，所以暂时不收手机上的文件，免得同一条收两次。手机上的文件都还在，等记录能读写了会接着收。"
+        ));
     }
 
     /// Logs `line` unless the same was already logged for `id`.
@@ -634,23 +699,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn imports_exports_and_switches_off() {
-        let kb = TempDir::new("bridge-service-kb");
-        init_repo(kb.path());
-        kb.write("index.md", "# 目录\n");
-        git(kb.path(), &["add", "-A"]);
-        git(kb.path(), &["commit", "-q", "-m", "init"]);
-        let bridge = TempDir::new("bridge-service");
-        let app = TempDir::new("bridge-service-app");
-        let config = app.path().join("config.json");
-        let dir = bridge.path().join("底色");
+    struct Harness {
+        service: BridgeService,
+        imported: Arc<Mutex<Vec<String>>>,
+        ready: Arc<AtomicUsize>,
+    }
 
+    fn harness(kb: &Path, dir: &Path, app: &Path, config: &Path) -> Harness {
         let imported = Arc::new(Mutex::new(Vec::<String>::new()));
         let ready = Arc::new(AtomicUsize::new(0));
-        let root = kb.path().to_path_buf();
-        let setting_dir = dir.clone();
-        let config_file = config.clone();
+        let root = kb.to_path_buf();
+        let setting_dir = dir.to_path_buf();
+        let config_file = config.to_path_buf();
         let imported_hook = Arc::clone(&imported);
         let ready_hook = Arc::clone(&ready);
         let service = BridgeService::new(
@@ -676,7 +736,7 @@ mod tests {
                         None,
                     )
                 }),
-                app_dir: Some(app.path().to_path_buf()),
+                app_dir: Some(app.to_path_buf()),
                 running: Box::new(|| None),
                 imported: Box::new(move |paths| imported_hook.lock().unwrap().extend(paths)),
                 ready: Box::new(move || {
@@ -688,22 +748,96 @@ mod tests {
                 download: Box::new(|_| {}),
             },
         );
+        Harness {
+            service,
+            imported,
+            ready,
+        }
+    }
+
+    fn knowledge_base(tag: &str) -> TempDir {
+        let kb = TempDir::new(tag);
+        init_repo(kb.path());
+        kb.write("index.md", "# 目录\n");
+        git(kb.path(), &["add", "-A"]);
+        git(kb.path(), &["commit", "-q", "-m", "init"]);
+        kb
+    }
+
+    #[test]
+    fn imports_nothing_and_says_so_while_the_record_cannot_be_written() {
+        use std::os::unix::fs::PermissionsExt;
+        let kb = knowledge_base("bridge-norecord-kb");
+        let bridge = TempDir::new("bridge-norecord");
+        let app = TempDir::new("bridge-norecord-app");
+        let dir = bridge.path().join("底色");
+        let Harness {
+            service, imported, ..
+        } = harness(kb.path(), &dir, app.path(), &app.path().join("config.json"));
         service.start();
         wait_for("the folder", || service.status().ready);
-        assert_eq!(ready.load(Ordering::SeqCst), 1);
+        assert_eq!(service.status().import_problem, None);
+        std::fs::set_permissions(app.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let file = dir.join("收件/记一笔/a.txt");
+        std::fs::write(&file, "等一等").unwrap();
+        wait_for("the warning", || service.status().import_problem.is_some());
+        let problem = service.status().import_problem.unwrap();
+        assert!(problem.contains("导入记录写不进去"), "{problem}");
+        assert!(problem.contains("暂时不收"), "{problem}");
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(file.exists());
+        assert_eq!(commit_count(kb.path()), 1);
+        assert!(imported.lock().unwrap().is_empty());
+
+        std::fs::set_permissions(app.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        service.import_now();
+        wait_for("the import", || !imported.lock().unwrap().is_empty());
+        wait_for("the warning to go", || {
+            service.status().import_problem.is_none()
+        });
+        assert!(!file.exists());
+        assert_eq!(commit_count(kb.path()), 2);
+        service.stop();
+    }
+
+    #[test]
+    fn imports_exports_and_switches_off() {
+        let kb = knowledge_base("bridge-service-kb");
+        let bridge = TempDir::new("bridge-service");
+        let app = TempDir::new("bridge-service-app");
+        let config = app.path().join("config.json");
+        let dir = bridge.path().join("底色");
+        let Harness {
+            service,
+            imported,
+            ready,
+        } = harness(kb.path(), &dir, app.path(), &config);
+        service.start();
+        wait_for("the folder", || service.status().ready);
+        // The status says ready a moment before the hook runs.
+        wait_for("the ready hook", || ready.load(Ordering::SeqCst) == 1);
         wait_for("the shortcuts", || service.status().shortcuts.is_some());
         assert!(dir.join("快捷指令/记一笔.shortcut").is_file());
         assert!(dir.join("快捷指令/使用说明.html").is_file());
 
-        std::fs::write(
-            dir.join("收件/记一笔/2026-10-12T09-00-00.txt"),
-            "手机上记的",
-        )
-        .unwrap();
+        // Written on the phone a while ago: the capture keeps that time.
+        let written = time::OffsetDateTime::now_utc() - Duration::from_secs(3600);
+        let file = dir.join("收件/记一笔/2026-10-12T09-00-00.txt");
+        std::fs::write(&file, "手机上记的").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(written.into())
+            .unwrap();
         wait_for("the import", || !imported.lock().unwrap().is_empty());
+        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
         assert_eq!(
             imported.lock().unwrap().as_slice(),
-            ["inbox/2026-10-12T09-00-00-iphone.md"]
+            [format!(
+                "inbox/{}-iphone.md",
+                LocalTime::from(written.to_offset(offset)).file_stamp()
+            )]
         );
         assert!(!dir.join("收件/记一笔/2026-10-12T09-00-00.txt").exists());
         assert_eq!(commit_count(kb.path()), 2);

@@ -32,6 +32,8 @@ export interface BridgeStatus {
   lastImport: string | null;
   shortcuts: string | null;
   waiting: number;
+  /** Why nothing is imported right now (the import record cannot be read or written). */
+  importProblem: string | null;
 }
 
 /** Where the bridge folder is, in the words of the Files app on the phone. */
