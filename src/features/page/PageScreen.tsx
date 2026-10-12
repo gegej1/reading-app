@@ -1,5 +1,13 @@
 import { Link, useParams } from "react-router";
-import { stripLeadingH1, stripMarkdown, type KbDoc, type KbModel, type LinkRef } from "../../domain";
+import {
+  reportSegments,
+  stripLeadingH1,
+  stripMarkdown,
+  type KbDoc,
+  type KbModel,
+  type LinkRef,
+  type Report,
+} from "../../domain";
 import { useKb } from "../../app/KbContext";
 import {
   docRoute,
@@ -12,6 +20,8 @@ import {
 import { Chip, EmptyState } from "../../ui/components";
 import { ExternalLink, isExternalUrl } from "../../ui/ExternalLink";
 import { Markdown } from "../../ui/Markdown";
+import { AnswerBox } from "../rulings/AnswerBox";
+import { AuditChecklist } from "../rulings/AuditChecklist";
 
 /** Frontmatter values as short display strings. */
 function frontmatterEntries(data: Record<string, unknown>): [string, string][] {
@@ -98,6 +108,28 @@ function SameNameNote({ doc, paths }: { doc: KbDoc; paths: string[] }) {
   );
 }
 
+/** A report: its Markdown, with the 待你抽查 checklist as controls. */
+function ReportBody({ report }: { report: Report }) {
+  const { resolveLink } = useKb();
+  return (
+    <div className="page__body report-body">
+      {reportSegments(stripLeadingH1(report.body)).map((segment, index) =>
+        segment.kind === "markdown" ? (
+          <Markdown key={index} resolve={resolveLink}>
+            {segment.markdown}
+          </Markdown>
+        ) : (
+          <section key={index} className="report-audit" aria-label={segment.heading}>
+            <h2 className="report-audit__title">{segment.heading}</h2>
+            <AuditChecklist report={report} />
+            {segment.rest ? <Markdown resolve={resolveLink}>{segment.rest}</Markdown> : null}
+          </section>
+        ),
+      )}
+    </div>
+  );
+}
+
 export function PageScreen() {
   const { model, resolveLink } = useKb();
   const params = useParams();
@@ -119,6 +151,9 @@ export function PageScreen() {
   const sectionItem = NAV_ITEMS.find((item) => item.section === section);
   const chips = frontmatterEntries(doc.frontmatter);
   const namesakes = sameNamePaths(model, doc);
+  const ruling = doc.group === "ruling" ? model.rulings.find((candidate) => candidate.path === doc.path) : undefined;
+  const report = doc.group === "report" ? model.reports.find((candidate) => candidate.path === doc.path) : undefined;
+  const answered = ruling ? (model.answerIndex.rulings.get(ruling.id)?.length ?? 0) : 0;
 
   return (
     <article className="screen page">
@@ -127,7 +162,14 @@ export function PageScreen() {
         <span aria-hidden="true">／</span>
         <span>{groupLabel(doc)}</span>
       </nav>
-      <h1 className="page__title">{doc.title}</h1>
+      <h1 className="page__title">
+        {doc.title}
+        {ruling && ruling.pending && answered > 0 ? (
+          <span className="page__status">
+            <Chip tone="jade">已回答，待落裁决</Chip>
+          </span>
+        ) : null}
+      </h1>
       {chips.length > 0 ? (
         <dl className="props" aria-label="页面属性">
           {chips.map(([key, value]) => (
@@ -145,9 +187,14 @@ export function PageScreen() {
         </dl>
       ) : null}
       {namesakes.length > 0 ? <SameNameNote doc={doc} paths={namesakes} /> : null}
-      <Markdown resolve={resolveLink} className="page__body">
-        {stripLeadingH1(doc.body)}
-      </Markdown>
+      {report && report.auditItems.length > 0 ? (
+        <ReportBody report={report} />
+      ) : (
+        <Markdown resolve={resolveLink} className="page__body">
+          {stripLeadingH1(doc.body)}
+        </Markdown>
+      )}
+      {ruling?.pending ? <AnswerBox ruling={ruling} /> : null}
       <Backlinks doc={doc} />
       <p className="page__path">{doc.path}</p>
     </article>

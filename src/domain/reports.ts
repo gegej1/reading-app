@@ -112,6 +112,44 @@ function auditRanges(lines: string[], mask: boolean[]): [number, number][] {
   return ranges;
 }
 
+/** A piece of a report body: Markdown, or the place of a 待你抽查 checklist. */
+export type ReportSegment =
+  | { kind: "markdown"; markdown: string }
+  | {
+      kind: "audit";
+      /** The section heading (without `## `). */
+      heading: string;
+      /** What else the section holds besides the checklist lines. */
+      rest: string;
+    };
+
+/**
+ * Cuts a report body (without frontmatter) at its 待你抽查 sections, so a
+ * page can show the checklist as controls and the rest as Markdown. The
+ * checklist lines themselves are left out of the segments; joined, the
+ * Markdown segments, headings and rests hold every other line.
+ */
+export function reportSegments(body: string): ReportSegment[] {
+  const lines = splitLines(body);
+  const mask = fencedCodeMask(lines);
+  const segments: ReportSegment[] = [];
+  let from = 0;
+  for (const [start, end] of auditRanges(lines, mask)) {
+    const headingLine = start - 1;
+    const before = lines.slice(from, headingLine).join("\n");
+    if (before.trim() !== "") segments.push({ kind: "markdown", markdown: before });
+    const rest = lines
+      .slice(start, end)
+      .filter((line, offset) => mask[start + offset] || !CHECKBOX.test(line.replace(/\r$/, "")))
+      .join("\n");
+    segments.push({ kind: "audit", heading: parseHeading(lines[headingLine] ?? "")?.text ?? "", rest: rest.trim() });
+    from = end;
+  }
+  const after = lines.slice(from).join("\n");
+  if (after.trim() !== "") segments.push({ kind: "markdown", markdown: after });
+  return segments;
+}
+
 /** Parses an ingest report. */
 export function parseReport(path: string, markdown: string): Report {
   const { data, block, body } = parseFrontmatter(markdown);

@@ -3,7 +3,8 @@ import { pickDailyEntry, stripMarkdown, type DiseEntry, type DiseSection } from 
 import { useCapture } from "../../app/capture";
 import { useKb } from "../../app/KbContext";
 import { diseEntryRoute, pageRoute } from "../../app/links";
-import { cx, EmptyState, Hint, Numbered, Seal } from "../../ui/components";
+import { RunStartButton } from "../../app/RunStartButton";
+import { cx, EmptyState, Numbered, Seal } from "../../ui/components";
 import { formatIsoDate, todayLabel } from "../../ui/format";
 import { useVerticalLetter } from "./useVerticalLetter";
 
@@ -200,11 +201,12 @@ export function TodayScreen({ now = new Date() }: { now?: Date }) {
           </section>
 
           <div className="today__actions rise" style={{ animationDelay: "300ms" }}>
-            <Hint text="还没开放：在 App 里发起入库">
-              <button type="button" className="btn btn--seal" disabled>
-                入库 ▶
-              </button>
-            </Hint>
+            <RunStartButton task="ingest" count={dashboard.inboxCaptures} />
+            {dashboard.answeredRulings > 0 ? (
+              <RunStartButton task="landRulings" count={dashboard.answeredRulings} />
+            ) : null}
+          </div>
+          <div className="today__links rise" style={{ animationDelay: "340ms" }}>
             <Link to="/rulings" className="btn">
               去裁决
             </Link>

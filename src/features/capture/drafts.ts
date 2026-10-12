@@ -20,13 +20,17 @@ export function pageStorage(): DraftStorage | null {
   }
 }
 
-/** Drafts in `storage`; without storage they only live as long as the page. */
-export function createDraftStore(storage: DraftStorage | null = pageStorage()): DraftStore {
+/**
+ * Drafts in `storage` under `key` (the capture's own key by default; answers
+ * keep one draft per question). Without storage they only live as long as
+ * the page.
+ */
+export function createDraftStore(storage: DraftStorage | null = pageStorage(), key: string = DRAFT_KEY): DraftStore {
   let memory = "";
   return {
     load() {
       try {
-        return storage?.getItem(DRAFT_KEY) ?? memory;
+        return storage?.getItem(key) ?? memory;
       } catch {
         return memory;
       }
@@ -34,8 +38,8 @@ export function createDraftStore(storage: DraftStorage | null = pageStorage()): 
     save(text) {
       memory = text;
       try {
-        if (text === "") storage?.removeItem(DRAFT_KEY);
-        else storage?.setItem(DRAFT_KEY, text);
+        if (text === "") storage?.removeItem(key);
+        else storage?.setItem(key, text);
       } catch {
         // Full or blocked storage: the text is still in the box.
       }
@@ -43,12 +47,22 @@ export function createDraftStore(storage: DraftStorage | null = pageStorage()): 
     clear() {
       memory = "";
       try {
-        storage?.removeItem(DRAFT_KEY);
+        storage?.removeItem(key);
       } catch {
         // See above.
       }
     },
   };
+}
+
+/** The draft key of the answer to one question (`Q-001`). */
+export function answerDraftKey(rulingId: string): string {
+  return `dise.answer.draft.${rulingId}`;
+}
+
+/** The draft key of the reason for rejecting one audit item. */
+export function rejectionDraftKey(report: string, itemId: string): string {
+  return `dise.audit.draft.${report}.${itemId}`;
 }
 
 /** A Storage stand-in for tests and previews. */

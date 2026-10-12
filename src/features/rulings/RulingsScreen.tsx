@@ -1,9 +1,11 @@
 import { Link, useSearchParams } from "react-router";
-import { stripMarkdown, type AuditItem, type Report, type Ruling } from "../../domain";
+import { stripMarkdown, type Report, type Ruling } from "../../domain";
 import { useKb } from "../../app/KbContext";
-import { docRoute, pageRoute } from "../../app/links";
+import { pageRoute } from "../../app/links";
+import { RunStartButton } from "../../app/RunStartButton";
 import { Chip, cx, EmptyState, Numbered, PageHeader } from "../../ui/components";
 import { formatIsoDate } from "../../ui/format";
+import { AuditChecklist } from "./AuditChecklist";
 
 const PRIORITY_GROUPS: { key: string; label: string }[] = [
   { key: "高", label: "高优先级" },
@@ -22,6 +24,8 @@ function groupByPriority(rulings: readonly Ruling[]) {
 }
 
 function RulingRow({ ruling, index }: { ruling: Ruling; index: number }) {
+  const { model } = useKb();
+  const answers = model.answerIndex.rulings.get(ruling.id)?.length ?? 0;
   return (
     <li className="rise" style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}>
       <Link to={pageRoute(ruling.path)} className="ruling-row">
@@ -36,6 +40,11 @@ function RulingRow({ ruling, index }: { ruling: Ruling; index: number }) {
           ) : null}
         </span>
         <span className="ruling-row__meta">
+          {answers > 0 ? (
+            <Chip tone="jade" title={answers > 1 ? `已经交上 ${answers} 份回答` : undefined}>
+              已回答，待落裁决
+            </Chip>
+          ) : null}
           {ruling.category ? <Chip tone={ruling.category === "新冲突" ? "seal" : "plain"}>{ruling.category}</Chip> : null}
           {ruling.updated ? <span className="ruling-row__date">{formatIsoDate(ruling.updated, { withYear: false })}</span> : null}
         </span>
@@ -65,49 +74,6 @@ function PendingList({ rulings }: { rulings: readonly Ruling[] }) {
         </section>
       ))}
     </div>
-  );
-}
-
-function AuditRow({ item }: { item: AuditItem }) {
-  const { model } = useKb();
-  const precedentPath = item.precedent ? model.links.index.resolve(item.precedent) : null;
-  const precedent = precedentPath ? model.byPath.get(precedentPath) : undefined;
-  return (
-    <li className={cx("audit-row", item.checked && "is-checked")}>
-      <span className={cx("audit-row__box", item.checked && "is-checked")} role="img" aria-label={item.checked ? "已认可" : "未抽查"}>
-        {item.checked ? "✓" : ""}
-      </span>
-      <div className="audit-row__main">
-        <p className="audit-row__summary">
-          {item.itemId ? <span className="audit-row__id">{item.itemId}</span> : null}
-          {item.summary}
-        </p>
-        {item.tension ? (
-          <p className="audit-row__tension">
-            <span className="audit-row__arrow" aria-label="对照">↔</span> {item.tension}
-          </p>
-        ) : null}
-        {item.ruling ? (
-          <p className="audit-row__ruling">
-            <span className="audit-row__label">AI 裁决</span>
-            {item.ruling}
-          </p>
-        ) : null}
-        {item.precedent ? (
-          <p className="audit-row__basis">
-            依据{" "}
-            {precedent ? (
-              <Link to={docRoute(precedent)} className="text-link">
-                {precedent.name}
-              </Link>
-            ) : (
-              <span className="wikilink--broken">{item.precedent}</span>
-            )}
-          </p>
-        ) : null}
-      </div>
-      {item.checked ? <span className="audit-row__state">已认可</span> : null}
-    </li>
   );
 }
 
@@ -142,11 +108,7 @@ function AuditList({ reports }: { reports: readonly Report[] }) {
                 ))}
               </ul>
             ) : null}
-            <ul className="audit-list">
-              {report.auditItems.map((item) => (
-                <AuditRow key={`${item.line}-${item.text}`} item={item} />
-              ))}
-            </ul>
+            <AuditChecklist report={report} />
           </section>
         );
       })}
@@ -175,9 +137,14 @@ export function RulingsScreen() {
             <span>
               待抽查 <span className="num">{unchecked}</span> 条
             </span>
-            <span className="rulings__note">现在只能查看，回答裁决和勾选抽查还没开放</span>
+            {model.dashboard.answeredRulings > 0 ? (
+              <span>
+                已回答 <span className="num">{model.dashboard.answeredRulings}</span> 份，待落裁决
+              </span>
+            ) : null}
           </>
         }
+        actions={<RunStartButton task="landRulings" count={model.dashboard.answeredRulings} />}
       />
 
       <div className="tabs" role="tablist" aria-label="裁决分类">

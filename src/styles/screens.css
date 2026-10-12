@@ -314,7 +314,8 @@
 .today__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 12px 16px;
 }
 
 /* ================= 底色 ================= */
@@ -872,6 +873,12 @@
   gap: 14px;
   padding: 14px 4px;
   border-bottom: 1px solid var(--rule);
+  transition: box-shadow 0.2s;
+}
+
+/* A rejected item: a cinnabar thread down its left edge. */
+.audit-row.is-rejected {
+  box-shadow: inset 2px 0 0 var(--seal-line);
 }
 
 .audit-row__box {
@@ -880,15 +887,74 @@
   width: 18px;
   height: 18px;
   margin-top: 3px;
-  font-size: 12px;
+  padding: 0;
+  font: 700 12px/1 var(--font-ui);
   color: var(--seal-ink);
+  background: var(--paper-raised);
   border: 1.5px solid var(--ink-faint);
   border-radius: 3px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    transform 0.15s;
+}
+
+.audit-row__box:hover:not(:disabled) {
+  border-color: var(--seal);
+  transform: scale(1.08);
+}
+
+.audit-row__box:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.audit-row__box.is-pending {
+  animation: breathe 1s ease-in-out infinite;
 }
 
 .audit-row__box.is-checked {
   background: var(--seal);
   border-color: var(--seal);
+}
+
+.audit-row > .hint {
+  align-self: start;
+}
+
+.audit-row__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.audit-row__reason {
+  position: relative;
+  margin: 10px 0 0;
+  padding: 2px 0 2px 12px;
+  font: 400 15.5px/1.75 var(--font-serif);
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  border-left: 2px solid var(--seal-line);
+}
+
+.audit-row__reason-time {
+  display: block;
+  font: 400 11.5px/1.5 var(--font-ui);
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+.audit-row__reject {
+  margin-top: 12px;
+}
+
+.audit-row__error {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--seal);
 }
 
 .audit-row__main {
@@ -948,6 +1014,155 @@
 .audit-row.is-checked .audit-row__summary,
 .audit-row.is-checked .audit-row__ruling {
   color: var(--ink-soft);
+}
+
+/* ---------- The answer box of a pending ruling ---------- */
+
+.answer {
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 3px double var(--rule-strong);
+}
+
+.answer__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.answer__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 700 18px/1.4 var(--font-serif);
+  letter-spacing: 0.14em;
+}
+
+.answer__title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: var(--seal);
+  transform: rotate(-7deg);
+}
+
+.answer__question {
+  margin-bottom: 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+}
+
+.answer__label {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--ochre);
+  background: var(--ochre-wash);
+  border-radius: 2px;
+}
+
+.answer__queued {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+/* What the user already said: their words on a filed slip, in Songti. */
+.answer__item {
+  padding: 10px 14px 9px;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-edge);
+  border-left: 3px solid color-mix(in srgb, var(--jade) 60%, transparent);
+  border-radius: 4px;
+}
+
+.answer__words {
+  margin: 0;
+  font: 400 17px/1.8 var(--font-serif);
+  letter-spacing: 0.03em;
+  white-space: pre-wrap;
+}
+
+.answer__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.answer__slip {
+  height: 220px;
+}
+
+/* ---------- Report pages: the checklist in place ---------- */
+
+.report-audit {
+  margin: 1.6em 0;
+}
+
+.report-audit__title {
+  margin-bottom: 4px;
+  font: 700 19px/1.45 var(--font-serif);
+  letter-spacing: 0.06em;
+}
+
+.page__status {
+  display: inline-flex;
+  margin-left: 14px;
+  vertical-align: middle;
+}
+
+/* ---------- Starting a run ---------- */
+
+.run-start {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.run-start__caption {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+.run-start__count {
+  margin-left: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--seal);
+  background: var(--seal-ink);
+  border-radius: 999px;
+}
+
+.run-start__count .num {
+  font-size: 13px;
+}
+
+.run-start__live {
+  gap: 9px;
+}
+
+.run-start__pulse {
+  width: 8px;
+  height: 8px;
+  background: var(--seal);
+  border-radius: 50%;
+  animation: sync-pulse 1.8s ease-out infinite;
+}
+
+.today__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 /* ================= 知识 ================= */

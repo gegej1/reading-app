@@ -160,6 +160,38 @@
   }
 }
 
+/* ---------- A slip that is part of a page (answers, reasons) ---------- */
+
+.slip--inline {
+  border-radius: 10px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 1px 3px rgba(39, 34, 28, 0.08),
+    0 10px 24px -16px rgba(39, 34, 28, 0.35);
+}
+
+.audit-row__reject .slip--inline {
+  height: 190px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .slip--inline {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.03) inset,
+      0 10px 26px -16px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Saving has to wait (an AI run works on the folder): the words stay. */
+.slip__status.is-blocked {
+  color: var(--ochre);
+  white-space: normal;
+}
+
+.slip.is-blocked .btn--seal:disabled {
+  opacity: 0.4;
+}
+
 /* ---------- The capture window (capture.html) ---------- */
 
 html.capture-page,

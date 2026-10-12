@@ -14,23 +14,59 @@ import { captureKeyAction, isApplePlatform, keyHint } from "./keys";
 
 type Phase = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
 
+/** The words on a slip. The capture's by default; answers bring their own. */
+export interface SlipCopy {
+  title: string;
+  placeholder: string;
+  /** The status line before anything happened. */
+  idle: string;
+  saving: string;
+  saved: string;
+  /** Before the reason of a failure. */
+  failed: string;
+  /** The save button. */
+  save: string;
+  /** The text box's name for screen readers. */
+  label: string;
+}
+
+export const CAPTURE_COPY: SlipCopy = {
+  title: "记一笔",
+  placeholder: "想到什么，先记下来……",
+  idle: "放进收件箱，下次入库时整理",
+  saving: "正在记下…",
+  saved: "已记下",
+  failed: "没有记下。",
+  save: "记下",
+  label: "随手记一笔",
+};
+
 export interface CapturePanelProps {
   /** Saves the text in the knowledge base; rejects with a readable message. */
   save(text: string): Promise<void>;
-  /** Puts the slip away. The draft stays, unless it was just saved. */
-  hide(): void;
+  /**
+   * Puts the slip away (Esc, 收起). The draft stays, unless it was just
+   * saved. Without it the slip stays where it is (inline in a page).
+   */
+  hide?(): void;
   /** Where the unsaved text is kept. */
   drafts: DraftStore;
   /** Changes every time the slip is shown, so the text gets the focus again. */
   shownAt?: number;
-  /** `window`: the floating capture window; `dialog`: inside the page. */
-  variant: "window" | "dialog";
-  /** How long 已记下 stays before the slip goes away. */
+  /** `window`: the floating capture window; `dialog`: inside the page; `inline`: part of a page. */
+  variant: "window" | "dialog" | "inline";
+  /** How long 已记下 stays before the slip goes away (or, inline, empties). */
   confirmMs?: number;
   /** Told about every change of the text (the window hides on blur only when it is empty). */
   onTextChange?(text: string): void;
   /** Use ⌘ in the key hint (default: detected from the platform). */
   apple?: boolean;
+  /** Other words for the slip (answers, reasons). */
+  copy?: Partial<SlipCopy>;
+  /** Why saving is not possible right now; the text stays editable and its draft is kept. */
+  blocked?: string | null;
+  /** Called once a save went through. */
+  onSaved?(): void;
 }
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -50,7 +86,11 @@ export function CapturePanel({
   confirmMs = 900,
   onTextChange,
   apple = isApplePlatform(),
+  copy: wording,
+  blocked = null,
+  onSaved,
 }: CapturePanelProps) {
+  const copy = { ...CAPTURE_COPY, ...wording };
   const [text, setText] = useState(() => drafts.load());
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const area = useRef<HTMLTextAreaElement>(null);
@@ -59,16 +99,18 @@ export function CapturePanel({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hint = keyHint(apple);
   const busy = phase.kind === "saving" || phase.kind === "saved";
+  const inline = variant === "inline";
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  // Focus the text, caret at the end, every time the slip is shown.
+  // Focus the text, caret at the end, every time the slip is shown. A slip
+  // that is part of a page only takes the focus when asked to (shownAt).
   useEffect(() => {
     const box = area.current;
-    if (!box) return;
+    if (!box || (inline && shownAt === undefined)) return;
     box.focus();
     box.setSelectionRange(box.value.length, box.value.length);
-  }, [shownAt]);
+  }, [shownAt, inline]);
 
   // After a paste that had to be applied by hand, put the caret behind it.
   useLayoutEffect(() => {
@@ -88,7 +130,7 @@ export function CapturePanel({
   );
 
   const submit = async () => {
-    if (busy) return;
+    if (busy || blocked !== null) return;
     if (isBlankCapture(text)) {
       setPhase({ kind: "error", message: "还没写字" });
       area.current?.focus();
@@ -104,11 +146,12 @@ export function CapturePanel({
     }
     drafts.clear();
     setPhase({ kind: "saved" });
+    onSaved?.();
     timer.current = setTimeout(() => {
       setText("");
       onTextChange?.("");
       setPhase({ kind: "idle" });
-      hide();
+      hide?.();
     }, confirmMs);
   };
 
@@ -129,7 +172,7 @@ export function CapturePanel({
     if (action === "save") {
       event.preventDefault();
       void submit();
-    } else if (action === "hide") {
+    } else if (action === "hide" && hide) {
       event.preventDefault();
       hide();
     }
@@ -151,19 +194,28 @@ export function CapturePanel({
 
   const status =
     phase.kind === "saving"
-      ? "正在记下…"
+      ? copy.saving
       : phase.kind === "saved"
-        ? "已记下"
+        ? copy.saved
         : phase.kind === "error"
-          ? `没有记下。${phase.message}`
-          : "放进收件箱，下次入库时整理";
+          ? `${copy.failed}${phase.message}`
+          : (blocked ?? copy.idle);
 
   return (
-    <div className={cx("slip", `slip--${variant}`, phase.kind === "saved" && "is-saved")} onKeyDown={onKeyDown}>
+    <div
+      className={cx("slip", `slip--${variant}`, phase.kind === "saved" && "is-saved", blocked !== null && "is-blocked")}
+      onKeyDown={onKeyDown}
+    >
       <header className="slip__head">
-        <span className="slip__title">记一笔</span>
+        <span className="slip__title">{copy.title}</span>
         <span className="slip__keys" aria-hidden="true">
-          <kbd>{hint.save}</kbd> 记下 · <kbd>{hint.hide}</kbd> 收起
+          <kbd>{hint.save}</kbd> {copy.save}
+          {hide ? (
+            <>
+              {" "}
+              · <kbd>{hint.hide}</kbd> 收起
+            </>
+          ) : null}
         </span>
       </header>
       <textarea
@@ -175,25 +227,33 @@ export function CapturePanel({
         onCompositionStart={() => (composing.current = true)}
         onCompositionEnd={() => (composing.current = false)}
         readOnly={busy}
-        placeholder="想到什么，先记下来……"
-        aria-label="随手记一笔"
+        placeholder={copy.placeholder}
+        aria-label={copy.label}
         spellCheck={false}
         autoComplete="off"
       />
       <footer className="slip__foot">
         <p
-          className={cx("slip__status", `is-${phase.kind}`)}
+          className={cx("slip__status", `is-${phase.kind}`, blocked !== null && phase.kind === "idle" && "is-blocked")}
           role={phase.kind === "error" ? "alert" : "status"}
           aria-live="polite"
         >
           {phase.kind === "saved" ? <span className="slip__check" aria-hidden="true" /> : null}
           {status}
         </p>
-        <button type="button" className="btn btn--quiet btn--small" onClick={hide}>
-          收起
-        </button>
-        <button type="button" className="btn btn--seal btn--small" onClick={() => void submit()} disabled={busy}>
-          记下
+        {hide ? (
+          <button type="button" className="btn btn--quiet btn--small" onClick={hide}>
+            收起
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn--seal btn--small"
+          onClick={() => void submit()}
+          disabled={busy || blocked !== null}
+          title={blocked ?? undefined}
+        >
+          {copy.save}
         </button>
       </footer>
     </div>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseAuditLine,
+  reportSegments,
   parseReport,
   reportDateFromPath,
   setChecked,
@@ -201,5 +202,35 @@ describe("setChecked", () => {
     expect(setChecked(text, "I-1", true)).toBe(
       "## 待你抽查\n\n- [ ] I-12 甲\n- [x] I-1 乙\n",
     );
+  });
+});
+
+describe("reportSegments", () => {
+  it("cuts the body at the audit sections and leaves out only the checklist lines", () => {
+    const body = [
+      "# 入库报告",
+      "",
+      "- 结果：2 条",
+      "",
+      "## 待你抽查：AI 按判例做的裁决",
+      "",
+      "- [ ] I-07 甲 ↔ 乙：丙",
+      "说明：只认可你同意的。",
+      "- [x] I-08 丁",
+      "",
+      "## 其他清单",
+      "- [ ] I-99 不在待抽查里",
+      "",
+    ].join("\n");
+    expect(reportSegments(body)).toEqual([
+      { kind: "markdown", markdown: "# 入库报告\n\n- 结果：2 条\n" },
+      { kind: "audit", heading: "待你抽查：AI 按判例做的裁决", rest: "说明：只认可你同意的。" },
+      { kind: "markdown", markdown: "## 其他清单\n- [ ] I-99 不在待抽查里\n" },
+    ]);
+  });
+
+  it("returns the whole body when there is no audit section", () => {
+    expect(reportSegments("# 报告\n\n正文\n")).toEqual([{ kind: "markdown", markdown: "# 报告\n\n正文\n" }]);
+    expect(reportSegments("")).toEqual([]);
   });
 });

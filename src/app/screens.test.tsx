@@ -11,6 +11,7 @@ import { AppRoutes } from "../App";
 import { TodayScreen } from "../features/today/TodayScreen";
 import { KbContext, type KbContextValue } from "./KbContext";
 import { makeLinkResolver, pageRoute } from "./links";
+import { NO_RUNS, RunContext } from "./RunContext";
 
 const model = buildKbModel(Object.entries(fixtureKb).map(([path, content]) => ({ path, content })));
 
@@ -72,7 +73,10 @@ describe("今日", () => {
     expect(t).toMatch(/待裁决 5 项 其中高优先级 2 项/);
     expect(t).toMatch(/待抽查 4 条/);
     expect(t).toContain("入库报告（2026-09-08 第二次）");
-    expect(html).toMatch(/data-hint="还没开放[^"]*"[^>]*><button type="button" class="btn btn--seal" disabled="">入库 ▶/);
+    // Runs only exist in the Mac app: here the buttons say so.
+    expect(html).toMatch(/data-hint="只能在 Mac 上运行"[^>]*><button type="button" class="btn btn--seal" disabled="">入库 ▶/);
+    expect(html).toMatch(/data-hint="只能在 Mac 上运行"[^>]*><button type="button" class="btn btn--seal" disabled="">落裁决 ▶/);
+    expect(t).toContain("只能在 Mac 上运行");
     // 记一笔 works everywhere now; without a desktop shortcut it shows no key.
     expect(html).toMatch(/<button type="button" class="btn btn--quiet today__capture" title="随手记一笔，直接进收件箱">✎ 记一笔<\/button>/);
     expect(html).not.toContain("today__notice");
@@ -118,6 +122,20 @@ describe("底色", () => {
     expect(html).toContain("只读预览");
   });
 
+  it("disables every confirm button while a run holds the knowledge base, and says why", () => {
+    const html = renderToStaticMarkup(
+      <KbContext.Provider value={contextValue()}>
+        <RunContext.Provider value={{ ...NO_RUNS, available: true, editBlocked: "正在入库，结束后再改" }}>
+          <MemoryRouter initialEntries={["/dise"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </RunContext.Provider>
+      </KbContext.Provider>,
+    );
+    expect(html.match(/<button type="button" class="btn btn--small[^"]*" disabled=""/g)).toHaveLength(6);
+    expect(html.match(/data-hint="正在入库，结束后再改"/g)).toHaveLength(6);
+  });
+
   it("disables every confirm button while an edit is being written", () => {
     const html = render("/dise", { editing: true });
     expect(html.match(/<button type="button" class="btn btn--small[^"]*" disabled=""/g)).toHaveLength(6);
@@ -133,18 +151,44 @@ describe("裁决", () => {
     expect(html).not.toContain("Q-005");
   });
 
-  it("says in plain words that answering is not available yet", () => {
-    const t = text(render("/rulings"));
-    expect(t).toContain("现在只能查看");
-    expect(t).not.toContain("只读 M");
+  it("marks the questions that were answered and offers 落裁决 (only on the Mac)", () => {
+    const html = render("/rulings");
+    const t = text(html);
+    expect(t).toContain("已回答 1 份，待落裁决");
+    const q001 = /<a [^>]*class="ruling-row"[^>]*>(?:(?!<\/a>)[\s\S])*Q-001(?:(?!<\/a>)[\s\S])*<\/a>/.exec(html)?.[0] ?? "";
+    expect(q001).toContain("已回答，待落裁决");
+    const q002 = /<a [^>]*class="ruling-row"[^>]*>(?:(?!<\/a>)[\s\S])*Q-002(?:(?!<\/a>)[\s\S])*<\/a>/.exec(html)?.[0] ?? "";
+    expect(q002).not.toContain("已回答");
+    expect(html).toMatch(/<button type="button" class="btn btn--seal" disabled="">落裁决 ▶/);
+    expect(t).not.toContain("现在只能查看");
   });
 
-  it("shows the audit checklist read-only on its tab", () => {
+  it("shows the audit checklist with a checkbox and 不认可 for every numbered item", () => {
     const html = render("/rulings?tab=audit");
     expect(html.match(/<li class="audit-row( is-checked)?">/g)?.length).toBe(6);
     expect(text(html)).toContain("I-07");
     expect(html).toContain("已认可");
     expect(html).not.toMatch(/<input/);
+    expect(html.match(/role="checkbox"/g)).toHaveLength(6);
+    expect(html.match(/aria-checked="true"/g)).toHaveLength(2);
+    // Checked items and the one without an id cannot be rejected.
+    expect(html.match(/>不认可<\/button>/g)).toHaveLength(3);
+    expect(html).toContain('data-hint="这一条没有编号，没法勾选"');
+  });
+
+  it("disables ticking while a run holds the knowledge base, but not rejecting", () => {
+    const html = renderToStaticMarkup(
+      <KbContext.Provider value={contextValue()}>
+        <RunContext.Provider value={{ ...NO_RUNS, available: true, editBlocked: "正在入库，结束后再改" }}>
+          <MemoryRouter initialEntries={["/rulings?tab=audit"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </RunContext.Provider>
+      </KbContext.Provider>,
+    );
+    expect(html.match(/data-hint="正在入库，结束后再改"/g)).toHaveLength(6);
+    expect(html.match(/role="checkbox"[^>]*disabled=""/g)).toHaveLength(6);
+    expect(html.match(/>不认可<\/button>/g)).toHaveLength(3);
   });
 });
 
@@ -187,6 +231,35 @@ describe("copy", () => {
       const visible = `${text(html)} ${[...html.matchAll(/(?:title|data-hint|aria-label)="([^"]*)"/g)].map((m) => m[1]).join(" ")}`;
       expect(visible, route).not.toMatch(/(?<![A-Za-z])M[0-9](?![0-9.])/);
     }
+  });
+});
+
+describe("answering", () => {
+  it("puts an answer box under a pending question, with the answers already given", () => {
+    const html = render(pageRoute("self/待裁决/Q-001-周会要不要取消.md"));
+    const t = text(html);
+    expect(html).toContain('<section class="answer" aria-label="回答 Q-001">');
+    expect(t).toContain("已回答，待落裁决");
+    expect(t).toContain("周会保留，但只开三十分钟。");
+    expect(t).toContain("9 月 12 日 22:10");
+    expect(html).toContain('aria-label="回答 Q-001"');
+    expect(t).toContain("交上回答");
+    expect(t).toContain("再补一句");
+    // An unanswered question starts with an empty box.
+    const q002 = render(pageRoute("self/待裁决/Q-002-外包的边界.md"));
+    expect(q002).toContain('aria-label="回答 Q-002"');
+    expect(text(q002)).not.toContain("已回答，待落裁决");
+    // A decided question gets none.
+    expect(render(pageRoute("self/待裁决/Q-005-休息日的消息.md"))).not.toContain('class="answer"');
+  });
+
+  it("shows the audit checklist of a report page as controls, the rest as Markdown", () => {
+    const html = render(pageRoute("reports/2026-09-08-入库报告-2.md"));
+    expect(html).toContain('<section class="report-audit" aria-label="待你抽查：AI 按判例做的裁决">');
+    expect(html.match(/role="checkbox"/g)).toHaveLength(3);
+    expect(text(html)).toContain("其他清单（不是抽查项）");
+    expect(text(html)).toContain("I-99 这一条不在待抽查小节里");
+    expect(text(html)).toContain("结果：");
   });
 });
 
