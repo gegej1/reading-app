@@ -49,7 +49,7 @@ export function localTime(date: Date): LocalTime {
 }
 
 /** `2026-10-12T14:03:22+08:00`. */
-function isoLocal(at: LocalTime): string {
+export function isoLocal(at: LocalTime): string {
   const sign = at.offsetMinutes < 0 ? "-" : "+";
   const offset = Math.abs(at.offsetMinutes);
   return `${pad(at.year, 4)}-${pad(at.month)}-${pad(at.day)}T${pad(at.hour)}:${pad(at.minute)}:${pad(at.second)}${sign}${pad(Math.floor(offset / 60))}:${pad(offset % 60)}`;
@@ -60,19 +60,35 @@ export function isBlankCapture(text: string): boolean {
   return text.trim() === "";
 }
 
+/** `2026-10-12T14-03-22`: the time in a file name. */
+export function fileStamp(at: LocalTime): string {
+  return `${pad(at.year, 4)}-${pad(at.month)}-${pad(at.day)}T${pad(at.hour)}-${pad(at.minute)}-${pad(at.second)}`;
+}
+
+/**
+ * The user's words as a file body: CRLF becomes LF and the text ends with
+ * exactly one newline; nothing inside is trimmed or reflowed.
+ */
+export function verbatimBody(text: string): string {
+  return `${text.replace(/\r\n/g, "\n").replace(/\n+$/, "")}\n`;
+}
+
+/** Throws for sources the knowledge base does not know. */
+export function assertSource(source: CaptureSource): void {
+  if (!CAPTURE_SOURCES.includes(source)) throw new Error(`不认识的来源：${String(source)}`);
+}
+
 /**
  * Builds the file for one capture made at `at`. The text is kept verbatim:
  * CRLF becomes LF and the file ends with exactly one newline; nothing inside
  * is trimmed or reflowed. Throws for empty text and unknown sources.
  */
 export function buildCaptureAt({ text, source, at }: { text: string; source: CaptureSource; at: LocalTime }): Capture {
-  if (!CAPTURE_SOURCES.includes(source)) throw new Error(`不认识的来源：${String(source)}`);
+  assertSource(source);
   if (isBlankCapture(text)) throw new Error("内容是空的，没有可以记下的东西");
-  const body = text.replace(/\r\n/g, "\n").replace(/\n+$/, "");
-  const stamp = `${pad(at.year, 4)}-${pad(at.month)}-${pad(at.day)}T${pad(at.hour)}-${pad(at.minute)}-${pad(at.second)}`;
   return {
-    path: `inbox/${stamp}-${source}.md`,
-    content: `---\n来源: ${source}\n时间: ${isoLocal(at)}\n---\n\n${body}\n`,
+    path: `inbox/${fileStamp(at)}-${source}.md`,
+    content: `---\n来源: ${source}\n时间: ${isoLocal(at)}\n---\n\n${verbatimBody(text)}`,
     message: `收件箱：记一笔（${source}）`,
   };
 }
@@ -108,9 +124,10 @@ export interface SavedCapture {
 }
 
 /**
- * Creates the capture. When its name is taken (two captures within one
- * second), the next free name is used; nothing is ever overwritten. Other
- * failures are passed on as they are.
+ * Creates the capture (or any other new queue file built like one, such as an
+ * answer in inbox/裁决/). When its name is taken (two within one second), the
+ * next free name is used; nothing is ever overwritten. Other failures are
+ * passed on as they are.
  */
 export async function saveCapture(
   target: CaptureTarget,

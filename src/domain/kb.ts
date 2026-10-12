@@ -1,3 +1,4 @@
+import { indexAnswers, type AnswerIndex } from "./answers";
 import { parseDise, type DiseDoc } from "./dise";
 import { parseFrontmatter, type FrontmatterData } from "./frontmatter";
 import { firstHeading } from "./markdown";
@@ -97,6 +98,8 @@ export interface KbModel {
   raw: KbDoc[];
   captures: KbDoc[];
   answers: KbDoc[];
+  /** The answers in inbox/裁决/ by what they answer (rulings, rejected audit items). */
+  answerIndex: AnswerIndex;
   links: LinkAnalysis & { index: LinkIndex };
   dashboard: DashboardCounts;
 }
@@ -222,6 +225,7 @@ export function buildKbModel(files: readonly KbFile[]): KbModel {
     raw: inGroup("raw"),
     captures,
     answers,
+    answerIndex: indexAnswers(answers),
     links,
     dashboard: {
       inboxCaptures: captures.length,
